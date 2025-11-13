@@ -107,6 +107,89 @@ enum CleanTarget {
         #[arg(long)]
         safe_only: bool,
     },
+
+    /// Python 仮想環境をクリーン
+    Python {
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
+
+    /// Go モジュールキャッシュをクリーン
+    Go {
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
+
+    /// Gradle キャッシュをクリーン
+    Gradle {
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
+
+    /// Haskell ビルド成果物をクリーン
+    Haskell {
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
+
+    /// Xcode DerivedData をクリーン
+    Xcode {
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -140,6 +223,48 @@ fn main() -> Result<()> {
                 min_size,
                 safe_only,
             } => clean_cache(search, delete, interactive, min_size, safe_only)?,
+            CleanTarget::Python {
+                path,
+                search,
+                delete,
+                interactive,
+            } => {
+                let cleaner = kanri_core::python::PythonCleaner::new(path);
+                clean_generic(&cleaner, "package.json", search, delete, interactive)?
+            }
+            CleanTarget::Go {
+                search,
+                delete,
+                interactive,
+            } => {
+                let cleaner = kanri_core::go::GoCleaner::new();
+                clean_generic(&cleaner, "Go module cache", search, delete, interactive)?
+            }
+            CleanTarget::Gradle {
+                search,
+                delete,
+                interactive,
+            } => {
+                let cleaner = kanri_core::gradle::GradleCleaner::new();
+                clean_generic(&cleaner, "Gradle cache", search, delete, interactive)?
+            }
+            CleanTarget::Haskell {
+                path,
+                search,
+                delete,
+                interactive,
+            } => {
+                let cleaner = kanri_core::haskell::HaskellCleaner::new(path);
+                clean_generic(&cleaner, "*.cabal or stack.yaml", search, delete, interactive)?
+            }
+            CleanTarget::Xcode {
+                search,
+                delete,
+                interactive,
+            } => {
+                let cleaner = kanri_core::xcode::XcodeCleaner::new();
+                clean_generic(&cleaner, "DerivedData", search, delete, interactive)?
+            }
         },
     }
 
@@ -602,6 +727,144 @@ fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, saf
 
     println!(
         "\n{} {} 件のキャッシュをクリーンしました ({}削除)",
+        "✅".green(),
+        cleaned.len().to_string().green().bold(),
+        kanri_core::utils::format_size(total_size).green().bold()
+    );
+
+    Ok(())
+}
+
+/// Cleanable trait ベースの汎用クリーン関数
+fn clean_generic(
+    cleaner: &impl kanri_core::Cleanable,
+    search_target: &str,
+    search: bool,
+    delete: bool,
+    interactive: bool,
+) -> Result<()> {
+    println!(
+        "{}",
+        format!("{} {} をスキャン中...", cleaner.icon(), cleaner.name())
+            .cyan()
+            .bold()
+    );
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message(format!("{} を検索中...", search_target));
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let items = cleaner.scan()?;
+    spinner.finish_and_clear();
+
+    if items.is_empty() {
+        println!(
+            "{}",
+            format!("✨ {} が見つかりませんでした", search_target).green()
+        );
+        return Ok(());
+    }
+
+    let total_size: u64 = items.iter().map(|item| item.size).sum();
+
+    println!(
+        "\n{} 件を発見 (合計: {})\n",
+        items.len().to_string().yellow().bold(),
+        kanri_core::utils::format_size(total_size).yellow().bold()
+    );
+
+    // 一覧を表示
+    for (i, item) in items.iter().enumerate() {
+        let display = if let Some(safety_label) = item.safety_label() {
+            let safety_icon = if item.is_safe() { "✓" } else { "⚠" };
+            let safety_color = if item.is_safe() {
+                safety_label.green()
+            } else {
+                safety_label.yellow()
+            };
+            format!(
+                "  {}. {} {} - {} {}",
+                (i + 1).to_string().dimmed(),
+                safety_icon,
+                item.name.bright_blue(),
+                item.formatted_size().yellow(),
+                safety_color
+            )
+        } else {
+            format!(
+                "  {}. {} - {}",
+                (i + 1).to_string().dimmed(),
+                item.name.bright_blue(),
+                item.formatted_size().yellow()
+            )
+        };
+        println!("{}", display);
+    }
+
+    // 検索モード（デフォルトまたは --search）
+    if search || (!delete && !interactive) {
+        println!(
+            "\n{} {}",
+            "ℹ".cyan(),
+            "検索モード: 削除対象を表示しています".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "削除するには --delete (-d) を指定してください".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "確認しながら削除するには --interactive (-i) を指定してください".dimmed()
+        );
+        return Ok(());
+    }
+
+    // インタラクティブモード
+    if interactive {
+        print!(
+            "\n{} 本当に削除しますか? (y/N): ",
+            "⚠".yellow().bold()
+        );
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("{}", "キャンセルされました".yellow());
+            return Ok(());
+        }
+    }
+
+    // 実行モード
+    println!("\n{}", "🗑️  削除中...".red().bold());
+
+    let pb = ProgressBar::new(items.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let cleaned = kanri_core::cleanable::clean_items(&items)?;
+
+    for item_name in &cleaned {
+        pb.inc(1);
+        pb.set_message(item_name.to_string());
+    }
+
+    pb.finish_and_clear();
+
+    println!(
+        "\n{} {} 件をクリーンしました ({}削除)",
         "✅".green(),
         cleaned.len().to_string().green().bold(),
         kanri_core::utils::format_size(total_size).green().bold()
