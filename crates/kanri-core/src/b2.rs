@@ -28,11 +28,12 @@ impl B2Client {
     /// B2 にログイン（認証）
     pub fn authorize(&self) -> Result<()> {
         let output = Command::new("b2")
-            .arg("authorize-account")
+            .arg("account")
+            .arg("authorize")
             .arg(&self.key_id)
             .arg(&self.key)
             .output()
-            .map_err(|e| crate::Error::B2(format!("Failed to run b2 authorize-account: {}", e)))?;
+            .map_err(|e| crate::Error::B2(format!("Failed to run b2 account authorize: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -56,8 +57,9 @@ impl B2Client {
         self.authorize()?;
 
         let output = Command::new("b2")
-            .arg("upload-file")
-            .arg("--noProgress")
+            .arg("file")
+            .arg("upload")
+            .arg("--no-progress")
             .arg(bucket)
             .arg(local_path)
             .arg(remote_path)
@@ -84,11 +86,14 @@ impl B2Client {
         // まず認証
         self.authorize()?;
 
+        // B2 URI 形式に変換
+        let b2_uri = format!("b2://{}/{}", bucket, remote_path);
+
         let output = Command::new("b2")
-            .arg("download-file-by-name")
-            .arg("--noProgress")
-            .arg(bucket)
-            .arg(remote_path)
+            .arg("file")
+            .arg("download")
+            .arg("--no-progress")
+            .arg(&b2_uri)
             .arg(local_path)
             .output()
             .map_err(|e| crate::Error::B2(format!("Failed to download file: {}", e)))?;
