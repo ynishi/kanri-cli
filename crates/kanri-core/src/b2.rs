@@ -10,8 +10,18 @@ pub struct B2Client {
 }
 
 impl B2Client {
-    pub fn new(key_id: String, key: String) -> Self {
-        Self { key_id, key }
+    pub fn new(key_id: String, key: String) -> Result<Self> {
+        if key_id.is_empty() {
+            return Err(crate::Error::Config(
+                "B2 Application Key ID is empty".into(),
+            ));
+        }
+        if key.is_empty() {
+            return Err(crate::Error::Config(
+                "B2 Application Key is empty".into(),
+            ));
+        }
+        Ok(Self { key_id, key })
     }
 
     /// B2 CLI がインストールされているか確認
@@ -48,15 +58,13 @@ impl B2Client {
     }
 
     /// ファイルを B2 にアップロード
+    /// 注意: 事前に authorize() を呼び出しておく必要があります
     pub fn upload_file(
         &self,
         bucket: &str,
         local_path: &Path,
         remote_path: &str,
     ) -> Result<String> {
-        // まず認証
-        self.authorize()?;
-
         let output = Command::new("b2")
             .env("B2_APPLICATION_KEY_ID", &self.key_id)
             .env("B2_APPLICATION_KEY", &self.key)
@@ -80,15 +88,13 @@ impl B2Client {
     }
 
     /// ファイルを B2 からダウンロード
+    /// 注意: 事前に authorize() を呼び出しておく必要があります
     pub fn download_file_by_name(
         &self,
         bucket: &str,
         remote_path: &str,
         local_path: &Path,
     ) -> Result<()> {
-        // まず認証
-        self.authorize()?;
-
         // B2 URI 形式に変換
         let b2_uri = format!("b2://{}/{}", bucket, remote_path);
 
@@ -168,6 +174,40 @@ impl B2Client {
         }
 
         Ok(uploaded)
+    }
+
+    /// B2 上のファイル一覧を取得
+    /// 注意: 事前に authorize() を呼び出しておく必要があります
+    pub fn list_files(&self, bucket: &str, prefix: &str) -> Result<Vec<String>> {
+        let output = Command::new("b2")
+            .env("B2_APPLICATION_KEY_ID", &self.key_id)
+            .env("B2_APPLICATION_KEY", &self.key)
+            .arg("file")
+            .arg("ls")
+            .arg("--recursive")
+            .arg(bucket)
+            .arg(prefix)
+            .output()
+            .map_err(|e| crate::Error::B2(format!("Failed to list files: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::B2(format!("List files failed: {}", stderr)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let files: Vec<String> = stdout
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                // B2 の ls 出力形式: "filename  size  upload_time"
+                // ファイル名部分だけを抽出
+                line.split_whitespace().next().unwrap_or("").to_string()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        Ok(files)
     }
 }
 

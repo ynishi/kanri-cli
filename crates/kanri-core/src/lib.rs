@@ -5,6 +5,7 @@ pub mod cleanable;
 pub mod config;
 pub mod docker;
 pub mod error;
+pub mod flutter;
 pub mod go;
 pub mod gradle;
 pub mod haskell;

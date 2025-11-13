@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{self, Write};
@@ -11,6 +11,16 @@ use std::path::PathBuf;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Clone, ValueEnum)]
+enum RestoreMode {
+    /// 最新版のみを復元（デフォルト）
+    Latest,
+    /// 特定バージョンを復元（--version と併用）
+    Version,
+    /// タイムスタンプ付きでそのまま復元
+    Raw,
 }
 
 #[derive(Subcommand)]
@@ -29,12 +39,21 @@ enum Commands {
 
     /// B2 からアーカイブを復元
     Restore {
-        /// アーカイブ ID
-        archive_id: String,
+        /// B2 上のアーカイブパス（プレフィックス）
+        #[arg(long)]
+        from: String,
 
-        /// 復元先ディレクトリ（デフォルト: 元の場所）
-        #[arg(short, long)]
-        to: Option<PathBuf>,
+        /// 復元先ディレクトリ
+        #[arg(long, default_value = ".")]
+        to: String,
+
+        /// 復元モード
+        #[arg(long, value_enum, default_value = "latest")]
+        mode: RestoreMode,
+
+        /// 特定バージョンを指定（--mode version と併用）
+        #[arg(long)]
+        version: Option<String>,
 
         /// Dry-run モード
         #[arg(long)]
@@ -112,6 +131,25 @@ enum CleanTarget {
         /// ボリュームも削除
         #[arg(short, long)]
         volumes: bool,
+    },
+
+    /// Flutter プロジェクトの build/.dart_tool をクリーン
+    Flutter {
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
     },
 
     /// Mac アプリケーションキャッシュをクリーン (⚠️ Experimental)
@@ -313,6 +351,9 @@ enum ConfigAction {
         #[arg(long)]
         key: Option<String>,
     },
+
+    /// B2 認証をテスト
+    TestB2,
 }
 
 fn main() -> Result<()> {
@@ -339,6 +380,12 @@ fn main() -> Result<()> {
                 all,
                 volumes,
             } => clean_docker(search, delete, interactive, all, volumes)?,
+            CleanTarget::Flutter {
+                path,
+                search,
+                delete,
+                interactive,
+            } => clean_flutter(&path, search, delete, interactive)?,
             CleanTarget::Cache {
                 search,
                 delete,
@@ -450,10 +497,12 @@ fn main() -> Result<()> {
             }
         },
         Commands::Restore {
-            archive_id,
+            from,
             to,
+            mode,
+            version,
             dry_run,
-        } => restore_archive(archive_id, to, dry_run)?,
+        } => restore_archive(&from, &to, mode, version.as_deref(), dry_run)?,
         Commands::ListArchives => list_archives()?,
         Commands::Config { action } => match action {
             ConfigAction::Show => show_config()?,
@@ -462,6 +511,7 @@ fn main() -> Result<()> {
                 key_id,
                 key,
             } => init_b2_config(bucket, key_id, key)?,
+            ConfigAction::TestB2 => test_b2_auth()?,
         },
     }
 
@@ -786,6 +836,111 @@ fn clean_docker(search: bool, delete: bool, interactive: bool, all: bool, volume
     Ok(())
 }
 
+fn clean_flutter(search_path: &PathBuf, search: bool, delete: bool, interactive: bool) -> Result<()> {
+    println!("{}", "🦋 Flutter プロジェクトをスキャン中...".cyan().bold());
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("pubspec.yaml を検索中...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let projects = kanri_core::flutter::find_flutter_projects(search_path)?;
+    spinner.finish_and_clear();
+
+    if projects.is_empty() {
+        println!("{}", "✨ Flutter プロジェクトが見つかりませんでした".green());
+        return Ok(());
+    }
+
+    let total_size: u64 = projects.iter().map(|p| p.size).sum();
+
+    println!(
+        "\n{} 件の Flutter プロジェクトを発見 (合計: {})\n",
+        projects.len().to_string().yellow().bold(),
+        kanri_core::utils::format_size(total_size).yellow().bold()
+    );
+
+    // プロジェクト一覧を表示
+    for (i, project) in projects.iter().enumerate() {
+        println!(
+            "  {}. {} - {}",
+            (i + 1).to_string().dimmed(),
+            project.root.display().to_string().bright_blue(),
+            project.formatted_size().yellow()
+        );
+    }
+
+    // 検索モード（デフォルトまたは --search）
+    if search || (!delete && !interactive) {
+        println!(
+            "\n{} {}",
+            "ℹ".cyan(),
+            "検索モード: 削除対象を表示しています".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "削除するには --delete (-d) を指定してください".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "確認しながら削除するには --interactive (-i) を指定してください".dimmed()
+        );
+        return Ok(());
+    }
+
+    // インタラクティブモード
+    if interactive {
+        print!(
+            "\n{} 本当に削除しますか? (y/N): ",
+            "⚠".yellow().bold()
+        );
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("{}", "キャンセルされました".yellow());
+            return Ok(());
+        }
+    }
+
+    // 実行モード
+    println!("\n{}", "🗑️  削除中...".red().bold());
+
+    let pb = ProgressBar::new(projects.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let cleaned = kanri_core::flutter::clean_projects(&projects)?;
+
+    for project in &cleaned {
+        pb.inc(1);
+        pb.set_message(format!("{}", project.display()));
+    }
+
+    pb.finish_and_clear();
+
+    println!(
+        "\n{} {} 件のプロジェクトをクリーンしました ({}削除)",
+        "✅".green(),
+        cleaned.len().to_string().green().bold(),
+        kanri_core::utils::format_size(total_size).green().bold()
+    );
+
+    Ok(())
+}
+
 fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, safe_only: bool) -> Result<()> {
     // Experimental 警告
     println!("{}", "⚠️  EXPERIMENTAL FEATURE".yellow().bold());
@@ -1101,7 +1256,11 @@ fn archive_large_files(
         return Ok(());
     }
 
-    let b2_client = b2::B2Client::new(key_id, key);
+    let b2_client = b2::B2Client::new(key_id, key)?;
+
+    // B2 に認証（一度だけ）
+    println!("{}", "🔐 B2 認証中...".cyan());
+    b2_client.authorize()?;
 
     // 大きなファイルを検索
     let min_size = min_size_gb * 1024 * 1024 * 1024;
@@ -1227,79 +1386,163 @@ fn archive_large_files(
     Ok(())
 }
 
-fn restore_archive(archive_id: String, to: Option<PathBuf>, dry_run: bool) -> Result<()> {
-    use kanri_core::{archive, b2, config};
+fn restore_archive(
+    from: &str,
+    to: &str,
+    mode: RestoreMode,
+    version: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
+    use kanri_core::{b2, config};
+    use std::collections::HashMap;
 
     println!("{}", "📥 アーカイブ復元処理を開始...".cyan().bold());
-
-    // アーカイブインデックスを読み込み
-    let index = archive::ArchiveIndex::load()?;
-    let archive = index
-        .find_by_id(&archive_id)
-        .ok_or_else(|| anyhow::anyhow!("Archive ID {} not found", archive_id))?;
-
-    println!(
-        "アーカイブ: {} (作成日時: {})",
-        archive.id.cyan().bold(),
-        archive.created_at.format("%Y-%m-%d %H:%M:%S")
-    );
-    println!("アイテム数: {}", archive.items.len());
-    println!(
-        "合計サイズ: {}",
-        kanri_core::utils::format_size(archive.total_size)
-    );
-
-    if dry_run {
-        println!("\n{}", "ℹ Dry-run モード: 実際のダウンロードは行いません".yellow());
-        for item in &archive.items {
-            let restore_path = if let Some(ref dest) = to {
-                dest.join(item.local_path.file_name().unwrap())
-            } else {
-                item.local_path.clone()
-            };
-            println!("  {} -> {}", item.b2_path, restore_path.display());
-        }
-        return Ok(());
-    }
 
     // 設定読み込み
     let config = config::Config::load()?;
     let bucket = config.get_b2_bucket()?;
     let (key_id, key) = config.get_b2_credentials()?;
 
-    let b2_client = b2::B2Client::new(key_id, key);
+    let b2_client = b2::B2Client::new(key_id, key)?;
 
-    // ダウンロード
-    println!("\n{}", "⬇️ B2 からダウンロード中...".cyan().bold());
+    // B2 に認証（一度だけ）
+    println!("{}", "🔐 B2 認証中...".cyan());
+    b2_client.authorize()?;
 
-    for item in &archive.items {
-        let restore_path = if let Some(ref dest) = to {
-            dest.join(item.local_path.file_name().unwrap())
-        } else {
-            item.local_path.clone()
-        };
+    // B2 からファイル一覧を取得
+    println!("{}", "📋 B2 からファイル一覧を取得中...".cyan());
+    let all_files = b2_client.list_files(&bucket, from)?;
 
-        println!("  📥 {} -> {}", item.b2_path, restore_path.display());
+    if all_files.is_empty() {
+        println!("{}", "⚠️ 該当するファイルが見つかりませんでした".yellow());
+        return Ok(());
+    }
+
+    println!("  {} {} 個のファイルを検出", "✅".green(), all_files.len());
+
+    // タイムスタンプを抽出するヘルパー関数
+    fn extract_timestamp(path: &str) -> Option<String> {
+        // YYYYMMDD_HHMMSS パターンを探す
+        for part in path.split('/') {
+            if part.len() == 15 && part.chars().nth(8) == Some('_') {
+                let before_underscore = &part[..8];
+                let after_underscore = &part[9..];
+                if before_underscore.chars().all(|c| c.is_ascii_digit())
+                    && after_underscore.chars().all(|c| c.is_ascii_digit())
+                {
+                    return Some(part.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    // タイムスタンプを除去するヘルパー関数
+    fn remove_timestamp(path: &str, timestamp: &str) -> String {
+        path.replace(&format!("/{}/", timestamp), "/")
+    }
+
+    // モードに応じてファイルをフィルタリング
+    let files_to_restore: Vec<(String, String)> = match mode {
+        RestoreMode::Latest => {
+            // タイムスタンプを除いた相対パスでグループ化
+            let mut file_groups: HashMap<String, Vec<String>> = HashMap::new();
+
+            for file in &all_files {
+                if let Some(timestamp) = extract_timestamp(file) {
+                    // タイムスタンプを除去した正規化パス
+                    let normalized = remove_timestamp(file, &timestamp);
+                    file_groups.entry(normalized).or_insert_with(Vec::new).push(file.clone());
+                }
+            }
+
+            // 各グループで最新のタイムスタンプを持つファイルを選択
+            let mut selected_files = Vec::new();
+            for (_normalized_path, mut files) in file_groups {
+                files.sort_by(|a, b| b.cmp(a)); // 降順ソート（最新が先頭）
+                if let Some(latest_file) = files.first() {
+                    // タイムスタンプを除去した復元先パスを生成
+                    if let Some(timestamp) = extract_timestamp(latest_file) {
+                        let restore_path = remove_timestamp(latest_file, &timestamp);
+                        // from プレフィックスを除去
+                        let restore_path = restore_path.strip_prefix(from).unwrap_or(&restore_path).trim_start_matches('/');
+                        selected_files.push((latest_file.clone(), restore_path.to_string()));
+                    }
+                }
+            }
+
+            selected_files
+        }
+        RestoreMode::Version => {
+            // 特定バージョンを指定
+            let version_str = version.ok_or_else(|| anyhow::anyhow!("--version が指定されていません"))?;
+
+            all_files
+                .iter()
+                .filter(|file| file.contains(&format!("/{}/", version_str)))
+                .map(|file| {
+                    // タイムスタンプを除去した復元先パス
+                    let restore_path = if let Some(timestamp) = extract_timestamp(file) {
+                        remove_timestamp(file, &timestamp)
+                    } else {
+                        file.to_string()
+                    };
+                    let restore_path = restore_path.strip_prefix(from).unwrap_or(&restore_path).trim_start_matches('/');
+                    (file.clone(), restore_path.to_string())
+                })
+                .collect()
+        }
+        RestoreMode::Raw => {
+            // タイムスタンプ付きでそのまま復元
+            all_files
+                .iter()
+                .map(|file| {
+                    let restore_path = file.strip_prefix(from).unwrap_or(file).trim_start_matches('/');
+                    (file.clone(), restore_path.to_string())
+                })
+                .collect()
+        }
+    };
+
+    if files_to_restore.is_empty() {
+        println!("{}", "⚠️ 復元対象のファイルがありません".yellow());
+        return Ok(());
+    }
+
+    // モード表示
+    let mode_str = match mode {
+        RestoreMode::Latest => "最新版のみ復元".to_string(),
+        RestoreMode::Version => format!("バージョン {} を復元", version.unwrap()),
+        RestoreMode::Raw => "タイムスタンプ付きでフル復元".to_string(),
+    };
+    println!("\n{} {}", "📦 復元モード:".cyan(), mode_str);
+    println!("{} {} 個のファイルを復元", "📥".cyan(), files_to_restore.len());
+
+    // Dry-run モード
+    if dry_run {
+        println!("\n{}", "ℹ  Dry-run モード: 実際のダウンロードは行いません".yellow());
+        println!("\n{}", "ダウンロード予定:".cyan().bold());
+        for (remote_file, local_path) in &files_to_restore {
+            let full_local_path = std::path::Path::new(to).join(local_path);
+            println!("  {} -> {}", remote_file, full_local_path.display().to_string().green());
+        }
+        return Ok(());
+    }
+
+    // 実際にダウンロード
+    println!("\n{}", "⬇️  B2 からダウンロード中...".cyan().bold());
+
+    for (remote_file, local_path) in &files_to_restore {
+        let full_local_path = std::path::Path::new(to).join(local_path);
+
+        println!("  📥 {} -> {}", remote_file, full_local_path.display());
 
         // 親ディレクトリを作成
-        if let Some(parent) = restore_path.parent() {
+        if let Some(parent) = full_local_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        b2_client.download_file_by_name(&bucket, &item.b2_path, &restore_path)?;
-
-        // SHA256 検証
-        if !item.is_dir && !item.sha256.is_empty() {
-            let downloaded_hash = b2::B2Client::calculate_sha256(&restore_path)?;
-            if downloaded_hash != item.sha256 {
-                eprintln!("    {} SHA256 mismatch!", "⚠️".yellow());
-                eprintln!("      Expected: {}", item.sha256);
-                eprintln!("      Got:      {}", downloaded_hash);
-            } else {
-                println!("    {}", "✅ 整合性確認済み".green());
-            }
-        }
-
+        b2_client.download_file_by_name(&bucket, remote_file, &full_local_path)?;
         println!("    {}", "✅ 完了".green());
     }
 
@@ -1405,6 +1648,96 @@ fn init_b2_config(bucket: String, key_id: Option<String>, key: Option<String>) -
     println!("{}", "💡 認証情報は環境変数で設定することを推奨します:".yellow());
     println!("  export B2_APPLICATION_KEY_ID=<your-key-id>");
     println!("  export B2_APPLICATION_KEY=<your-key>");
+
+    Ok(())
+}
+
+fn test_b2_auth() -> Result<()> {
+    use kanri_core::{b2, config};
+
+    println!("{}", "🔐 B2 認証テスト...".cyan().bold());
+    println!();
+
+    // B2 CLI チェック
+    if !b2::B2Client::is_installed() {
+        eprintln!("{}", "❌ B2 CLI がインストールされていません".red());
+        eprintln!(
+            "{}",
+            "インストール: pip install b2 または brew install b2-tools".yellow()
+        );
+        return Ok(());
+    }
+    println!("{}", "✅ B2 CLI インストール確認済み".green());
+
+    // 設定読み込み
+    let config = config::Config::load()?;
+
+    // バケット確認
+    match config.get_b2_bucket() {
+        Ok(bucket) => println!("{} {}", "✅ バケット設定:".green(), bucket.cyan()),
+        Err(e) => {
+            eprintln!("{} {}", "❌ バケット未設定:".red(), e);
+            return Ok(());
+        }
+    }
+
+    // 認証情報確認
+    let (key_id, key) = match config.get_b2_credentials() {
+        Ok((id, k)) => {
+            println!("{}", "✅ 認証情報取得成功".green());
+            println!("  Key ID: {}***", &id.chars().take(8).collect::<String>());
+            (id, k)
+        }
+        Err(e) => {
+            eprintln!("{} {}", "❌ 認証情報取得失敗:".red(), e);
+            eprintln!();
+            eprintln!("{}", "環境変数を設定してください:".yellow());
+            eprintln!("  export B2_APPLICATION_KEY_ID=<your-key-id>");
+            eprintln!("  export B2_APPLICATION_KEY=<your-key>");
+            return Ok(());
+        }
+    };
+
+    // B2Client 作成（空チェック）
+    println!();
+    println!("{}", "🔑 B2 認証を試行中...".cyan());
+    let b2_client = match b2::B2Client::new(key_id, key) {
+        Ok(client) => {
+            println!("{}", "✅ 認証情報の形式チェック OK".green());
+            client
+        }
+        Err(e) => {
+            eprintln!("{} {}", "❌ 認証情報エラー:".red(), e);
+            return Ok(());
+        }
+    };
+
+    // 実際に認証を試す
+    match b2_client.authorize() {
+        Ok(_) => {
+            println!();
+            println!("{}", "✅ B2 認証成功！".green().bold());
+            println!("{}", "認証情報は正しく設定されています。".green());
+        }
+        Err(e) => {
+            println!();
+            eprintln!("{}", "❌ B2 認証失敗".red().bold());
+            eprintln!();
+            eprintln!("{} {}", "エラー詳細:".yellow(), e);
+            eprintln!();
+            eprintln!("{}", "考えられる原因:".yellow());
+            eprintln!("  1. Application Key ID または Application Key が間違っている");
+            eprintln!("  2. キーの権限が不足している（readFiles, writeFiles が必要）");
+            eprintln!("  3. ネットワーク接続の問題");
+            eprintln!();
+            eprintln!("{}", "確認方法:".cyan());
+            eprintln!("  1. B2 コンソールで新しいキーを発行");
+            eprintln!("  2. 環境変数を再設定:");
+            eprintln!("     export B2_APPLICATION_KEY_ID=<new-key-id>");
+            eprintln!("     export B2_APPLICATION_KEY=<new-key>");
+            eprintln!("  3. 再度テスト: kanri config test-b2");
+        }
+    }
 
     Ok(())
 }
