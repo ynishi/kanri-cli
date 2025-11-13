@@ -26,12 +26,13 @@ impl B2Client {
     }
 
     /// B2 にログイン（認証）
+    /// B2 CLI v4+ では環境変数経由で認証情報を渡すことを推奨
     pub fn authorize(&self) -> Result<()> {
         let output = Command::new("b2")
+            .env("B2_APPLICATION_KEY_ID", &self.key_id)
+            .env("B2_APPLICATION_KEY", &self.key)
             .arg("account")
             .arg("authorize")
-            .arg(&self.key_id)
-            .arg(&self.key)
             .output()
             .map_err(|e| crate::Error::B2(format!("Failed to run b2 account authorize: {}", e)))?;
 
@@ -57,6 +58,8 @@ impl B2Client {
         self.authorize()?;
 
         let output = Command::new("b2")
+            .env("B2_APPLICATION_KEY_ID", &self.key_id)
+            .env("B2_APPLICATION_KEY", &self.key)
             .arg("file")
             .arg("upload")
             .arg("--no-progress")
@@ -90,6 +93,8 @@ impl B2Client {
         let b2_uri = format!("b2://{}/{}", bucket, remote_path);
 
         let output = Command::new("b2")
+            .env("B2_APPLICATION_KEY_ID", &self.key_id)
+            .env("B2_APPLICATION_KEY", &self.key)
             .arg("file")
             .arg("download")
             .arg("--no-progress")
