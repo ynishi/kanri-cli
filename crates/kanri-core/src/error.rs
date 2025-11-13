@@ -14,6 +14,15 @@ pub enum Error {
 
     #[error("Operation cancelled by user")]
     Cancelled,
+
+    #[error("Configuration error: {0}")]
+    Config(String),
+
+    #[error("B2 error: {0}")]
+    B2(String),
+
+    #[error("Archive error: {0}")]
+    Archive(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

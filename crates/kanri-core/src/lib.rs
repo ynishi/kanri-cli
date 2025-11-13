@@ -1,5 +1,8 @@
+pub mod archive;
+pub mod b2;
 pub mod cache;
 pub mod cleanable;
+pub mod config;
 pub mod docker;
 pub mod error;
 pub mod go;

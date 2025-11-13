@@ -17,3 +17,4 @@ clap.workspace = true
 anyhow.workspace = true
 colored.workspace = true
 indicatif.workspace = true
+chrono.workspace = true

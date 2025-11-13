@@ -20,6 +20,35 @@ enum Commands {
         #[command(subcommand)]
         target: CleanTarget,
     },
+
+    /// ファイル・ディレクトリを B2 にアーカイブ
+    Archive {
+        #[command(subcommand)]
+        target: ArchiveTarget,
+    },
+
+    /// B2 からアーカイブを復元
+    Restore {
+        /// アーカイブ ID
+        archive_id: String,
+
+        /// 復元先ディレクトリ（デフォルト: 元の場所）
+        #[arg(short, long)]
+        to: Option<PathBuf>,
+
+        /// Dry-run モード
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// アーカイブ一覧を表示
+    ListArchives,
+
+    /// 設定を初期化
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -227,6 +256,65 @@ enum CleanTarget {
     },
 }
 
+#[derive(Subcommand)]
+enum ArchiveTarget {
+    /// 大きなファイルをアーカイブ
+    LargeFiles {
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+
+        /// 最小サイズ（GB）
+        #[arg(long, default_value = "2")]
+        min_size_gb: u64,
+
+        /// 拡張子フィルタ（カンマ区切り）
+        #[arg(long)]
+        extensions: Option<String>,
+
+        /// ファイルのみ
+        #[arg(long)]
+        files_only: bool,
+
+        /// ディレクトリのみ
+        #[arg(long)]
+        dirs_only: bool,
+
+        /// アーカイブ先パス（B2 バケット内）
+        #[arg(long)]
+        to: String,
+
+        /// アップロード成功後にローカルファイルを削除
+        #[arg(long)]
+        delete_after: bool,
+
+        /// Dry-run モード
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// 設定を表示
+    Show,
+
+    /// B2 設定を初期化
+    InitB2 {
+        /// B2 バケット名
+        #[arg(long)]
+        bucket: String,
+
+        /// Application Key ID（オプション、環境変数推奨）
+        #[arg(long)]
+        key_id: Option<String>,
+
+        /// Application Key（オプション、環境変数推奨）
+        #[arg(long)]
+        key: Option<String>,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -337,6 +425,43 @@ fn main() -> Result<()> {
 
                 clean_generic(&cleaner, "large items", search, delete, interactive)?
             }
+        },
+        Commands::Archive { target } => match target {
+            ArchiveTarget::LargeFiles {
+                path,
+                min_size_gb,
+                extensions,
+                files_only,
+                dirs_only,
+                to,
+                delete_after,
+                dry_run,
+            } => {
+                archive_large_files(
+                    path,
+                    min_size_gb,
+                    extensions,
+                    files_only,
+                    dirs_only,
+                    to,
+                    delete_after,
+                    dry_run,
+                )?
+            }
+        },
+        Commands::Restore {
+            archive_id,
+            to,
+            dry_run,
+        } => restore_archive(archive_id, to, dry_run)?,
+        Commands::ListArchives => list_archives()?,
+        Commands::Config { action } => match action {
+            ConfigAction::Show => show_config()?,
+            ConfigAction::InitB2 {
+                bucket,
+                key_id,
+                key,
+            } => init_b2_config(bucket, key_id, key)?,
         },
     }
 
@@ -941,6 +1066,337 @@ fn clean_generic(
         cleaned.len().to_string().green().bold(),
         kanri_core::utils::format_size(total_size).green().bold()
     );
+
+    Ok(())
+}
+
+// ========== Archive / Restore Functions ==========
+
+fn archive_large_files(
+    path: PathBuf,
+    min_size_gb: u64,
+    extensions: Option<String>,
+    files_only: bool,
+    dirs_only: bool,
+    to: String,
+    delete_after: bool,
+    dry_run: bool,
+) -> Result<()> {
+    use kanri_core::{archive, b2, config, large_files};
+
+    println!("{}", "📦 アーカイブ処理を開始...".cyan().bold());
+
+    // 設定読み込み
+    let config = config::Config::load()?;
+    let bucket = config.get_b2_bucket()?;
+    let (key_id, key) = config.get_b2_credentials()?;
+
+    // B2 CLI チェック
+    if !b2::B2Client::is_installed() {
+        eprintln!("{}", "❌ B2 CLI がインストールされていません".red());
+        eprintln!(
+            "{}",
+            "インストール: pip install b2 または brew install b2-tools".yellow()
+        );
+        return Ok(());
+    }
+
+    let b2_client = b2::B2Client::new(key_id, key);
+
+    // 大きなファイルを検索
+    let min_size = min_size_gb * 1024 * 1024 * 1024;
+    let ext_vec: Option<Vec<String>> = extensions.map(|s| s.split(',').map(|e| e.trim().to_string()).collect());
+
+    let (include_files, include_dirs) = match (files_only, dirs_only) {
+        (true, true) => {
+            eprintln!("{}", "Error: --files-only and --dirs-only cannot be used together".red());
+            return Ok(());
+        }
+        (true, false) => (true, false),
+        (false, true) => (false, true),
+        (false, false) => (true, true),
+    };
+
+    let items = large_files::find_large_items(
+        &path,
+        min_size,
+        ext_vec.as_deref(),
+        include_dirs,
+        include_files,
+    )?;
+
+    if items.is_empty() {
+        println!("{}", "ℹ アーカイブ対象が見つかりませんでした".yellow());
+        return Ok(());
+    }
+
+    println!(
+        "\n{} 件のアイテムが見つかりました (合計: {})",
+        items.len().to_string().cyan().bold(),
+        kanri_core::utils::format_size(items.iter().map(|i| i.size).sum()).cyan().bold()
+    );
+
+    // リスト表示
+    for (i, item) in items.iter().enumerate().take(10) {
+        let type_label = if item.is_dir { "dir" } else { "file" };
+        println!(
+            "  {}. {} ({}) - {}",
+            i + 1,
+            item.path.display(),
+            type_label,
+            kanri_core::utils::format_size(item.size)
+        );
+    }
+    if items.len() > 10 {
+        println!("  ... 他 {} 件", items.len() - 10);
+    }
+
+    // タイムスタンプ付きパスを生成（自動バージョニング）
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let versioned_path = format!("{}/{}", to, timestamp);
+
+    println!(
+        "\n{} {}",
+        "📍 アーカイブ先:".cyan().bold(),
+        versioned_path.cyan()
+    );
+
+    if dry_run {
+        println!("\n{}", "ℹ Dry-run モード: 実際のアップロードは行いません".yellow());
+        return Ok(());
+    }
+
+    // アーカイブ作成
+    let mut archive_record = archive::Archive::new("large-files".to_string(), versioned_path.clone());
+
+    // アップロード
+    println!("\n{}", "⬆️ B2 にアップロード中...".cyan().bold());
+
+    for item in &items {
+        let remote_path = format!("{}/{}", versioned_path, item.path.file_name().unwrap().to_string_lossy());
+
+        println!("  📤 {} -> {}", item.path.display(), remote_path);
+
+        if item.is_dir {
+            let _files = b2_client.upload_directory(&bucket, &item.path, &remote_path)?;
+        } else {
+            let _file_id = b2_client.upload_file(&bucket, &item.path, &remote_path)?;
+        }
+
+        let archive_item = archive::ArchiveItem::from_file(&item.path, remote_path)?;
+        archive_record.add_item(archive_item);
+
+        println!("    {}", "✅ 完了".green());
+    }
+
+    // アーカイブインデックスに追加
+    let mut index = archive::ArchiveIndex::load()?;
+    index.add_archive(archive_record.clone());
+    index.save()?;
+
+    println!(
+        "\n{} アーカイブ完了 (ID: {})",
+        "✅".green(),
+        archive_record.id.green().bold()
+    );
+
+    // delete_after が指定されている場合は削除
+    if delete_after {
+        println!("\n{}", "🗑️ ローカルファイルを削除中...".yellow());
+        for item in &items {
+            if item.path.exists() {
+                if item.is_dir {
+                    std::fs::remove_dir_all(&item.path)?;
+                } else {
+                    std::fs::remove_file(&item.path)?;
+                }
+                println!("  {} {}", "✅".green(), item.path.display());
+            }
+        }
+        println!("{}", "✅ ローカルファイルを削除しました".green());
+    }
+
+    Ok(())
+}
+
+fn restore_archive(archive_id: String, to: Option<PathBuf>, dry_run: bool) -> Result<()> {
+    use kanri_core::{archive, b2, config};
+
+    println!("{}", "📥 アーカイブ復元処理を開始...".cyan().bold());
+
+    // アーカイブインデックスを読み込み
+    let index = archive::ArchiveIndex::load()?;
+    let archive = index
+        .find_by_id(&archive_id)
+        .ok_or_else(|| anyhow::anyhow!("Archive ID {} not found", archive_id))?;
+
+    println!(
+        "アーカイブ: {} (作成日時: {})",
+        archive.id.cyan().bold(),
+        archive.created_at.format("%Y-%m-%d %H:%M:%S")
+    );
+    println!("アイテム数: {}", archive.items.len());
+    println!(
+        "合計サイズ: {}",
+        kanri_core::utils::format_size(archive.total_size)
+    );
+
+    if dry_run {
+        println!("\n{}", "ℹ Dry-run モード: 実際のダウンロードは行いません".yellow());
+        for item in &archive.items {
+            let restore_path = if let Some(ref dest) = to {
+                dest.join(item.local_path.file_name().unwrap())
+            } else {
+                item.local_path.clone()
+            };
+            println!("  {} -> {}", item.b2_path, restore_path.display());
+        }
+        return Ok(());
+    }
+
+    // 設定読み込み
+    let config = config::Config::load()?;
+    let bucket = config.get_b2_bucket()?;
+    let (key_id, key) = config.get_b2_credentials()?;
+
+    let b2_client = b2::B2Client::new(key_id, key);
+
+    // ダウンロード
+    println!("\n{}", "⬇️ B2 からダウンロード中...".cyan().bold());
+
+    for item in &archive.items {
+        let restore_path = if let Some(ref dest) = to {
+            dest.join(item.local_path.file_name().unwrap())
+        } else {
+            item.local_path.clone()
+        };
+
+        println!("  📥 {} -> {}", item.b2_path, restore_path.display());
+
+        // 親ディレクトリを作成
+        if let Some(parent) = restore_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        b2_client.download_file_by_name(&bucket, &item.b2_path, &restore_path)?;
+
+        // SHA256 検証
+        if !item.is_dir && !item.sha256.is_empty() {
+            let downloaded_hash = b2::B2Client::calculate_sha256(&restore_path)?;
+            if downloaded_hash != item.sha256 {
+                eprintln!("    {} SHA256 mismatch!", "⚠️".yellow());
+                eprintln!("      Expected: {}", item.sha256);
+                eprintln!("      Got:      {}", downloaded_hash);
+            } else {
+                println!("    {}", "✅ 整合性確認済み".green());
+            }
+        }
+
+        println!("    {}", "✅ 完了".green());
+    }
+
+    println!("\n{}", "✅ 復元完了".green());
+
+    Ok(())
+}
+
+fn list_archives() -> Result<()> {
+    use kanri_core::archive;
+
+    let index = archive::ArchiveIndex::load()?;
+
+    if index.archives.is_empty() {
+        println!("{}", "ℹ アーカイブが見つかりませんでした".yellow());
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        format!("📦 アーカイブ一覧 ({} 件)", index.archives.len())
+            .cyan()
+            .bold()
+    );
+
+    for archive in &index.archives {
+        println!("\n{}", "─".repeat(80).dimmed());
+        println!("ID:         {}", archive.id.cyan().bold());
+        println!(
+            "作成日時:   {}",
+            archive.created_at.format("%Y-%m-%d %H:%M:%S")
+        );
+        println!("クリーナー: {}", archive.cleaner);
+        println!("保存先:     {}", archive.destination);
+        println!("アイテム数: {}", archive.items.len());
+        println!(
+            "合計サイズ: {}",
+            kanri_core::utils::format_size(archive.total_size)
+        );
+    }
+
+    Ok(())
+}
+
+fn show_config() -> Result<()> {
+    use kanri_core::config;
+
+    let config = config::Config::load()?;
+
+    println!("{}", "⚙️ 現在の設定".cyan().bold());
+    println!();
+
+    if let Some(b2) = &config.b2 {
+        println!("{}:", "B2 Configuration".green().bold());
+        println!("  Bucket: {}", b2.bucket);
+        println!(
+            "  Application Key ID: {}",
+            b2.application_key_id
+                .as_ref()
+                .map(|_| "****")
+                .unwrap_or("(環境変数)")
+        );
+        println!(
+            "  Application Key: {}",
+            b2.application_key
+                .as_ref()
+                .map(|_| "****")
+                .unwrap_or("(環境変数)")
+        );
+    } else {
+        println!("{}", "B2 が設定されていません".yellow());
+        println!("設定するには: {}", "kanri config init-b2 --bucket <bucket-name>".cyan());
+    }
+
+    println!();
+    println!(
+        "設定ファイル: {}",
+        config::Config::config_path()?.display()
+    );
+
+    Ok(())
+}
+
+fn init_b2_config(bucket: String, key_id: Option<String>, key: Option<String>) -> Result<()> {
+    use kanri_core::config;
+
+    let mut config = config::Config::load().unwrap_or_default();
+
+    config.b2 = Some(config::B2Config {
+        bucket: bucket.clone(),
+        application_key_id: key_id,
+        application_key: key,
+    });
+
+    config.save()?;
+
+    println!(
+        "{}",
+        "✅ B2 設定を保存しました".green().bold()
+    );
+    println!("  Bucket: {}", bucket.cyan());
+    println!();
+    println!("{}", "💡 認証情報は環境変数で設定することを推奨します:".yellow());
+    println!("  export B2_APPLICATION_KEY_ID=<your-key-id>");
+    println!("  export B2_APPLICATION_KEY=<your-key>");
 
     Ok(())
 }
