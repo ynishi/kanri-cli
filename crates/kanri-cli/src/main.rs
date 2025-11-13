@@ -1163,6 +1163,12 @@ fn archive_large_files(
 
     if dry_run {
         println!("\n{}", "ℹ Dry-run モード: 実際のアップロードは行いません".yellow());
+        println!("\n{}", "アップロード予定:".cyan().bold());
+        for item in &items {
+            let relative_path = item.path.strip_prefix(&path).unwrap_or(item.path.as_path());
+            let remote_path = format!("{}/{}", versioned_path, relative_path.to_string_lossy());
+            println!("  {} -> {}", item.path.display(), remote_path.green());
+        }
         return Ok(());
     }
 
@@ -1173,9 +1179,11 @@ fn archive_large_files(
     println!("\n{}", "⬆️ B2 にアップロード中...".cyan().bold());
 
     for item in &items {
-        let remote_path = format!("{}/{}", versioned_path, item.path.file_name().unwrap().to_string_lossy());
+        // 検索パスからの相対パスを保持
+        let relative_path = item.path.strip_prefix(&path).unwrap_or(item.path.as_path());
+        let remote_path = format!("{}/{}", versioned_path, relative_path.to_string_lossy());
 
-        println!("  📤 {} -> {}", item.path.display(), remote_path);
+        println!("  📤 {} -> {}", item.path.display(), remote_path.green());
 
         if item.is_dir {
             let _files = b2_client.upload_directory(&bucket, &item.path, &remote_path)?;
