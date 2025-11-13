@@ -71,6 +71,8 @@ impl B2Client {
             .arg("file")
             .arg("upload")
             .arg("--no-progress")
+            .arg("--threads")
+            .arg("1")
             .arg(bucket)
             .arg(local_path)
             .arg(remote_path)
