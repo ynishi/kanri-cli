@@ -1,4 +1,6 @@
+pub mod docker;
 pub mod error;
+pub mod node;
 pub mod rust;
 pub mod utils;
 

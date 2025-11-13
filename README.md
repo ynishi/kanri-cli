@@ -37,14 +37,43 @@ kanri clean rust -i
 kanri clean rust -p ~/projects
 ```
 
-### その他（予定）
+### Node.js プロジェクトのクリーンアップ
 
 ```bash
-# Docker 関連をクリーン
+# 検索・表示のみ（デフォルト）
+kanri clean node
+kanri clean node -s
+
+# 削除を実行
+kanri clean node -d
+
+# 確認しながら削除
+kanri clean node -i
+
+# 特定のディレクトリを検索
+kanri clean node -p ~/projects
+```
+
+### Docker のクリーンアップ
+
+```bash
+# 検索・表示のみ（デフォルト）
 kanri clean docker
 
-# Node.js 関連をクリーン
-kanri clean node
+# 削除を実行
+kanri clean docker -d
+
+# 確認しながら削除
+kanri clean docker -i
+
+# 未使用イメージもすべて削除
+kanri clean docker -d --all
+
+# ボリュームも削除
+kanri clean docker -d --volumes
+
+# すべてのオプションを指定
+kanri clean docker -d --all --volumes
 ```
 
 ## 開発
