@@ -190,6 +190,41 @@ enum CleanTarget {
         #[arg(short, long)]
         interactive: bool,
     },
+
+    /// 大きなファイル・ディレクトリをクリーン
+    LargeFiles {
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+
+        /// 最小サイズ（GB）（デフォルト: 2GB）
+        #[arg(long, default_value = "2")]
+        min_size_gb: u64,
+
+        /// 拡張子フィルタ（カンマ区切り、例: .ckpt,.pth,.safetensors）
+        #[arg(long)]
+        extensions: Option<String>,
+
+        /// ファイルのみを検索（デフォルト: ディレクトリとファイル両方）
+        #[arg(long)]
+        files_only: bool,
+
+        /// ディレクトリのみを検索（デフォルト: ディレクトリとファイル両方）
+        #[arg(long)]
+        dirs_only: bool,
+
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -264,6 +299,43 @@ fn main() -> Result<()> {
             } => {
                 let cleaner = kanri_core::xcode::XcodeCleaner::new();
                 clean_generic(&cleaner, "DerivedData", search, delete, interactive)?
+            }
+            CleanTarget::LargeFiles {
+                path,
+                min_size_gb,
+                extensions,
+                files_only,
+                dirs_only,
+                search,
+                delete,
+                interactive,
+            } => {
+                let min_size = min_size_gb * 1024 * 1024 * 1024; // GB to bytes
+                let ext_vec = extensions.map(|s| {
+                    s.split(',')
+                        .map(|e| e.trim().to_string())
+                        .collect::<Vec<_>>()
+                });
+
+                // files_only と dirs_only が両方指定された場合はエラー
+                let (include_files, include_dirs) = match (files_only, dirs_only) {
+                    (true, true) => {
+                        eprintln!("Error: --files-only and --dirs-only cannot be used together");
+                        std::process::exit(1);
+                    }
+                    (true, false) => (true, false),
+                    (false, true) => (false, true),
+                    (false, false) => (true, true),
+                };
+
+                let mut cleaner = kanri_core::large_files::LargeFilesCleaner::new(path, min_size);
+                if let Some(exts) = ext_vec {
+                    cleaner = cleaner.with_extensions(exts);
+                }
+                cleaner = cleaner.with_include_dirs(include_dirs);
+                cleaner = cleaner.with_include_files(include_files);
+
+                clean_generic(&cleaner, "large items", search, delete, interactive)?
             }
         },
     }

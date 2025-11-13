@@ -5,6 +5,7 @@ pub mod error;
 pub mod go;
 pub mod gradle;
 pub mod haskell;
+pub mod large_files;
 pub mod node;
 pub mod python;
 pub mod rust;
