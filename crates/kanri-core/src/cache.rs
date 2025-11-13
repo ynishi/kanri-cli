@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::{utils, Result};
+use crate::{
+    cleanable::{Cleanable, CleanableItem, CleanableMetadata},
+    utils, Result,
+};
 
 /// Mac アプリケーションキャッシュ情報
 #[derive(Debug, Clone)]
@@ -119,6 +122,50 @@ pub fn clean_caches(entries: &[CacheEntry]) -> Result<Vec<String>> {
     }
 
     Ok(cleaned)
+}
+
+/// Mac キャッシュクリーナー
+pub struct CacheCleaner {
+    pub min_size_gb: u64,
+    pub safe_only: bool,
+}
+
+impl CacheCleaner {
+    pub fn new(min_size_gb: u64, safe_only: bool) -> Self {
+        Self {
+            min_size_gb,
+            safe_only,
+        }
+    }
+}
+
+impl Cleanable for CacheCleaner {
+    fn scan(&self) -> Result<Vec<CleanableItem>> {
+        let mut caches = scan_user_caches(self.min_size_gb)?;
+
+        if self.safe_only {
+            caches.retain(|c| c.is_safe);
+        }
+
+        Ok(caches
+            .into_iter()
+            .map(|c| {
+                let metadata = CleanableMetadata {
+                    is_safe: Some(c.is_safe),
+                    safety_label: Some(c.safety_label().to_string()),
+                };
+                CleanableItem::with_metadata(c.name, c.path, c.size, metadata)
+            })
+            .collect())
+    }
+
+    fn name(&self) -> &str {
+        "Mac Cache"
+    }
+
+    fn icon(&self) -> &str {
+        "💾"
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use crate::{utils, Result};
+use crate::{cleanable::{Cleanable, CleanableItem}, utils, Result};
 
 /// Node.js プロジェクト情報
 #[derive(Debug, Clone)]
@@ -82,6 +82,36 @@ pub fn clean_projects(projects: &[NodeProject]) -> Result<Vec<PathBuf>> {
     }
 
     Ok(cleaned)
+}
+
+/// Node.js プロジェクトクリーナー
+pub struct NodeCleaner {
+    pub search_path: PathBuf,
+}
+
+impl NodeCleaner {
+    pub fn new(search_path: PathBuf) -> Self {
+        Self { search_path }
+    }
+}
+
+impl Cleanable for NodeCleaner {
+    fn scan(&self) -> Result<Vec<CleanableItem>> {
+        let projects = find_node_projects(&self.search_path)?;
+
+        Ok(projects
+            .into_iter()
+            .map(|p| CleanableItem::new(p.root.display().to_string(), p.node_modules_dir, p.size))
+            .collect())
+    }
+
+    fn name(&self) -> &str {
+        "Node.js"
+    }
+
+    fn icon(&self) -> &str {
+        "📦"
+    }
 }
 
 #[cfg(test)]

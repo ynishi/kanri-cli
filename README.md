@@ -122,7 +122,50 @@ kanri/
 └── crates/
     ├── kanri-cli/          # CLI エントリーポイント
     └── kanri-core/         # コア機能
+        ├── cleanable.rs    # Cleanable trait（拡張可能な設計）
+        ├── rust.rs         # Rust クリーナー
+        ├── node.rs         # Node.js クリーナー
+        ├── docker.rs       # Docker クリーナー
+        └── cache.rs        # Mac キャッシュクリーナー
 ```
+
+## 拡張方法：新しいクリーナーの追加
+
+`Cleanable` trait を実装すれば、新しいクリーナーを簡単に追加できます。
+
+### 例：Python 仮想環境クリーナー
+
+```rust
+use kanri_core::{Cleanable, CleanableItem, Result};
+use std::path::PathBuf;
+
+pub struct PythonCleaner {
+    pub search_path: PathBuf,
+}
+
+impl Cleanable for PythonCleaner {
+    fn scan(&self) -> Result<Vec<CleanableItem>> {
+        // venv, .venv ディレクトリを検索
+        // ...
+        Ok(items)
+    }
+
+    fn name(&self) -> &str {
+        "Python"
+    }
+
+    fn icon(&self) -> &str {
+        "🐍"
+    }
+}
+```
+
+### Cleanable trait の利点
+
+- **統一されたインターフェース**: すべてのクリーナーが同じパターンで動作
+- **再利用可能**: 共通機能（サイズ計算、削除処理）を共有
+- **拡張容易**: 新しいクリーナーの追加が簡単
+- **メタデータ対応**: 安全性情報などの追加情報をサポート
 
 ## ライセンス
 

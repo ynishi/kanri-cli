@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use crate::{utils, Result};
+use crate::{cleanable::{Cleanable, CleanableItem}, utils, Result};
 
 /// Rust プロジェクト情報
 #[derive(Debug, Clone)]
@@ -82,6 +82,36 @@ pub fn clean_projects(projects: &[RustProject]) -> Result<Vec<PathBuf>> {
     }
 
     Ok(cleaned)
+}
+
+/// Rust プロジェクトクリーナー
+pub struct RustCleaner {
+    pub search_path: PathBuf,
+}
+
+impl RustCleaner {
+    pub fn new(search_path: PathBuf) -> Self {
+        Self { search_path }
+    }
+}
+
+impl Cleanable for RustCleaner {
+    fn scan(&self) -> Result<Vec<CleanableItem>> {
+        let projects = find_rust_projects(&self.search_path)?;
+
+        Ok(projects
+            .into_iter()
+            .map(|p| CleanableItem::new(p.root.display().to_string(), p.target_dir, p.size))
+            .collect())
+    }
+
+    fn name(&self) -> &str {
+        "Rust"
+    }
+
+    fn icon(&self) -> &str {
+        "🦀"
+    }
 }
 
 #[cfg(test)]
