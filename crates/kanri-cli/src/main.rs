@@ -84,6 +84,29 @@ enum CleanTarget {
         #[arg(short, long)]
         volumes: bool,
     },
+
+    /// Mac アプリケーションキャッシュをクリーン (⚠️ Experimental)
+    Cache {
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+
+        /// 最小サイズ（GB単位、デフォルト: 1GB）
+        #[arg(long, default_value = "1")]
+        min_size: u64,
+
+        /// 安全なキャッシュのみ表示
+        #[arg(long)]
+        safe_only: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -110,6 +133,13 @@ fn main() -> Result<()> {
                 all,
                 volumes,
             } => clean_docker(search, delete, interactive, all, volumes)?,
+            CleanTarget::Cache {
+                search,
+                delete,
+                interactive,
+                min_size,
+                safe_only,
+            } => clean_cache(search, delete, interactive, min_size, safe_only)?,
         },
     }
 
@@ -430,6 +460,152 @@ fn clean_docker(search: bool, delete: bool, interactive: bool, all: bool, volume
 
     println!("\n{}", "✅ クリーンアップ完了".green().bold());
     println!("\n{}", output.dimmed());
+
+    Ok(())
+}
+
+fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, safe_only: bool) -> Result<()> {
+    // Experimental 警告
+    println!("{}", "⚠️  EXPERIMENTAL FEATURE".yellow().bold());
+    println!(
+        "{}",
+        "このコマンドは実験的な機能です。削除前に必ず内容を確認してください。"
+            .yellow()
+    );
+    println!();
+
+    println!("{}", "💾 Mac アプリケーションキャッシュをスキャン中...".cyan().bold());
+    println!(
+        "{}",
+        format!("最小サイズ: {} GB 以上", min_size).dimmed()
+    );
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("~/Library/Caches を検索中...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let mut caches = kanri_core::cache::scan_user_caches(min_size)?;
+    spinner.finish_and_clear();
+
+    if safe_only {
+        caches.retain(|c| c.is_safe);
+    }
+
+    if caches.is_empty() {
+        println!(
+            "{}",
+            format!("✨ {} GB 以上のキャッシュが見つかりませんでした", min_size).green()
+        );
+        return Ok(());
+    }
+
+    let total_size: u64 = caches.iter().map(|c| c.size).sum();
+
+    println!(
+        "\n{} 件のキャッシュを発見 (合計: {})\n",
+        caches.len().to_string().yellow().bold(),
+        kanri_core::utils::format_size(total_size).yellow().bold()
+    );
+
+    // キャッシュ一覧を表示
+    for (i, cache) in caches.iter().enumerate() {
+        let safety_icon = if cache.is_safe { "✓" } else { "⚠" };
+        let safety_color = if cache.is_safe {
+            cache.safety_label().green()
+        } else {
+            cache.safety_label().yellow()
+        };
+
+        println!(
+            "  {}. {} {} - {} {}",
+            (i + 1).to_string().dimmed(),
+            safety_icon,
+            cache.name.bright_blue(),
+            cache.formatted_size().yellow(),
+            safety_color
+        );
+    }
+
+    // 検索モード（デフォルトまたは --search）
+    if search || (!delete && !interactive) {
+        println!(
+            "\n{} {}",
+            "ℹ".cyan(),
+            "検索モード: 削除対象を表示しています".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "削除するには --delete (-d) を指定してください".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "確認しながら削除するには --interactive (-i) を指定してください".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "安全なキャッシュのみ表示するには --safe-only を指定してください".dimmed()
+        );
+        return Ok(());
+    }
+
+    // インタラクティブモード
+    if interactive {
+        println!(
+            "\n{} {}",
+            "⚠".red().bold(),
+            "削除するキャッシュを確認してください。".yellow()
+        );
+        println!(
+            "{}",
+            "アプリケーションによっては再ダウンロードが必要になる場合があります。"
+                .dimmed()
+        );
+        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("{}", "キャンセルされました".yellow());
+            return Ok(());
+        }
+    }
+
+    // 実行モード
+    println!("\n{}", "🗑️  削除中...".red().bold());
+
+    let pb = ProgressBar::new(caches.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let cleaned = kanri_core::cache::clean_caches(&caches)?;
+
+    for cache_name in &cleaned {
+        pb.inc(1);
+        pb.set_message(cache_name.to_string());
+    }
+
+    pb.finish_and_clear();
+
+    println!(
+        "\n{} {} 件のキャッシュをクリーンしました ({}削除)",
+        "✅".green(),
+        cleaned.len().to_string().green().bold(),
+        kanri_core::utils::format_size(total_size).green().bold()
+    );
 
     Ok(())
 }

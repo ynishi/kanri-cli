@@ -5,9 +5,9 @@ Mac のローカル環境を管理・クリーンアップする CLI ツール
 ## 機能
 
 - **Rust プロジェクト**: `target/` ディレクトリの検索・削除
+- **Node.js プロジェクト**: `node_modules/` の検索・削除
 - **Docker**: 未使用イメージ・コンテナ・ボリュームの削除
-- **Node.js**: `node_modules/` の検索・削除
-- その他、開発に溜まりがちな不要ファイルの一括クリーンアップ
+- **Mac キャッシュ** (⚠️ Experimental): `~/Library/Caches/` の大容量キャッシュの検索・削除（1GB以上）
 
 ## インストール
 
@@ -75,6 +75,31 @@ kanri clean docker -d --volumes
 # すべてのオプションを指定
 kanri clean docker -d --all --volumes
 ```
+
+### Mac アプリケーションキャッシュのクリーンアップ (⚠️ Experimental)
+
+```bash
+# 検索・表示のみ（デフォルト、1GB以上）
+kanri clean cache
+
+# 安全なキャッシュのみ表示
+kanri clean cache --safe-only
+
+# 最小サイズを指定（2GB以上）
+kanri clean cache --min-size 2
+
+# 確認しながら削除（推奨）
+kanri clean cache -i
+
+# 削除を実行（注意！）
+kanri clean cache -d
+```
+
+**注意事項**:
+- この機能は実験的です。削除前に必ず内容を確認してください
+- `✓ 安全` マークは一般的に削除しても問題ないキャッシュです
+- `⚠ 要確認` マークは慎重に判断してください
+- アプリケーションによっては再ダウンロードが必要になる場合があります
 
 ## 開発
 
