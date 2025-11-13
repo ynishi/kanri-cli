@@ -1,0 +1,19 @@
+[package]
+name = "kanri-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "kanri"
+path = "src/main.rs"
+
+[dependencies]
+kanri-core = { path = "../kanri-core" }
+
+clap.workspace = true
+anyhow.workspace = true
+colored.workspace = true
+indicatif.workspace = true

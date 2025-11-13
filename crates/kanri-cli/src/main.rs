@@ -1,0 +1,167 @@
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::io::{self, Write};
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(name = "kanri")]
+#[command(author, version, about = "Mac ローカル環境管理ツール", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// クリーンアップコマンド
+    Clean {
+        #[command(subcommand)]
+        target: CleanTarget,
+    },
+}
+
+#[derive(Subcommand)]
+enum CleanTarget {
+    /// Rust プロジェクトの target ディレクトリをクリーン
+    Rust {
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+
+        /// 検索・表示のみ（デフォルト動作）
+        #[arg(short, long)]
+        search: bool,
+
+        /// 削除を実行
+        #[arg(short, long)]
+        delete: bool,
+
+        /// インタラクティブモード（削除前に確認）
+        #[arg(short, long)]
+        interactive: bool,
+    },
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Clean { target } => match target {
+            CleanTarget::Rust {
+                path,
+                search,
+                delete,
+                interactive,
+            } => clean_rust(&path, search, delete, interactive)?,
+        },
+    }
+
+    Ok(())
+}
+
+fn clean_rust(search_path: &PathBuf, search: bool, delete: bool, interactive: bool) -> Result<()> {
+    println!("{}", "🦀 Rust プロジェクトをスキャン中...".cyan().bold());
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Cargo.toml を検索中...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let projects = kanri_core::rust::find_rust_projects(search_path)?;
+    spinner.finish_and_clear();
+
+    if projects.is_empty() {
+        println!("{}", "✨ target ディレクトリが見つかりませんでした".green());
+        return Ok(());
+    }
+
+    let total_size: u64 = projects.iter().map(|p| p.size).sum();
+
+    println!(
+        "\n{} 件の Rust プロジェクトを発見 (合計: {})\n",
+        projects.len().to_string().yellow().bold(),
+        kanri_core::utils::format_size(total_size).yellow().bold()
+    );
+
+    // プロジェクト一覧を表示
+    for (i, project) in projects.iter().enumerate() {
+        println!(
+            "  {}. {} - {}",
+            (i + 1).to_string().dimmed(),
+            project.root.display().to_string().bright_blue(),
+            project.formatted_size().yellow()
+        );
+    }
+
+    // 検索モード（デフォルトまたは --search）
+    if search || (!delete && !interactive) {
+        println!(
+            "\n{} {}",
+            "ℹ".cyan(),
+            "検索モード: 削除対象を表示しています".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "削除するには --delete (-d) を指定してください".dimmed()
+        );
+        println!(
+            "{} {}",
+            "💡".cyan(),
+            "確認しながら削除するには --interactive (-i) を指定してください".dimmed()
+        );
+        return Ok(());
+    }
+
+    // インタラクティブモード
+    if interactive {
+        print!(
+            "\n{} 本当に削除しますか? (y/N): ",
+            "⚠".yellow().bold()
+        );
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("{}", "キャンセルされました".yellow());
+            return Ok(());
+        }
+    }
+
+    // 実行モード
+    println!("\n{}", "🗑️  削除中...".red().bold());
+
+    let pb = ProgressBar::new(projects.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let cleaned = kanri_core::rust::clean_projects(&projects)?;
+
+    for project in &cleaned {
+        pb.inc(1);
+        pb.set_message(format!("{}", project.display()));
+    }
+
+    pb.finish_and_clear();
+
+    println!(
+        "\n{} {} 件のプロジェクトをクリーンしました ({}削除)",
+        "✅".green(),
+        cleaned.len().to_string().green().bold(),
+        kanri_core::utils::format_size(total_size).green().bold()
+    );
+
+    Ok(())
+}
