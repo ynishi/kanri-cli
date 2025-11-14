@@ -1068,34 +1068,88 @@ fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, saf
         return Ok(());
     }
 
-    // インタラクティブモード
-    if interactive {
-        println!(
-            "\n{} {}",
-            "⚠".red().bold(),
-            "削除するキャッシュを確認してください。".yellow()
-        );
-        println!(
-            "{}",
-            "アプリケーションによっては再ダウンロードが必要になる場合があります。"
-                .dimmed()
-        );
-        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
-        io::stdout().flush()?;
+    // インタラクティブモード: 各キャッシュごとに確認
+    let caches_to_delete = if interactive {
+        println!("\n{}", "各キャッシュについて個別に確認します".cyan());
+        println!("{}", "(y)削除 / (n)スキップ / (q)中断 / (a)全て削除".dimmed());
+        println!();
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        let mut selected_caches = Vec::new();
+        let mut delete_all = false;
 
-        if !input.trim().eq_ignore_ascii_case("y") {
-            println!("{}", "キャンセルされました".yellow());
+        for cache in &caches {
+            if delete_all {
+                selected_caches.push(cache.clone());
+                continue;
+            }
+
+            let safety_icon = if cache.is_safe { "✓" } else { "⚠" };
+            let safety_color = if cache.is_safe {
+                cache.safety_label().green()
+            } else {
+                cache.safety_label().yellow()
+            };
+
+            print!(
+                "{} {} {} - {} {} を削除しますか? (y/n/q/a): ",
+                safety_icon,
+                cache.name.bright_blue(),
+                cache.formatted_size().yellow(),
+                safety_color,
+                "".dimmed()
+            );
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let choice = input.trim().to_lowercase();
+
+            match choice.as_str() {
+                "y" | "yes" => {
+                    selected_caches.push(cache.clone());
+                    println!("  {} 削除対象に追加", "✓".green());
+                }
+                "n" | "no" | "" => {
+                    println!("  {} スキップ", "→".dimmed());
+                }
+                "q" | "quit" => {
+                    println!("\n{}", "中断しました".yellow());
+                    if selected_caches.is_empty() {
+                        return Ok(());
+                    }
+                    break;
+                }
+                "a" | "all" => {
+                    selected_caches.push(cache.clone());
+                    delete_all = true;
+                    println!("  {} 以降すべて削除対象に追加", "✓".green());
+                }
+                _ => {
+                    println!("  {} 無効な入力、スキップします", "⚠".yellow());
+                }
+            }
+        }
+
+        if selected_caches.is_empty() {
+            println!("\n{}", "削除対象がありません".yellow());
             return Ok(());
         }
-    }
+
+        println!(
+            "\n{} {} 件のキャッシュを削除します",
+            "📋".cyan(),
+            selected_caches.len()
+        );
+        selected_caches
+    } else {
+        // 非インタラクティブモード（--delete）は全て削除
+        caches.clone()
+    };
 
     // 実行モード
     println!("\n{}", "🗑️  削除中...".red().bold());
 
-    let pb = ProgressBar::new(caches.len() as u64);
+    let pb = ProgressBar::new(caches_to_delete.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
@@ -1103,7 +1157,7 @@ fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, saf
             .progress_chars("#>-"),
     );
 
-    let cleaned = kanri_core::cache::clean_caches(&caches)?;
+    let cleaned = kanri_core::cache::clean_caches(&caches_to_delete)?;
 
     for cache_name in &cleaned {
         pb.inc(1);
@@ -1112,11 +1166,14 @@ fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, saf
 
     pb.finish_and_clear();
 
+    // 削除したキャッシュの合計サイズを計算
+    let deleted_size: u64 = caches_to_delete.iter().map(|c| c.size).sum();
+
     println!(
         "\n{} {} 件のキャッシュをクリーンしました ({}削除)",
         "✅".green(),
         cleaned.len().to_string().green().bold(),
-        kanri_core::utils::format_size(total_size).green().bold()
+        kanri_core::utils::format_size(deleted_size).green().bold()
     );
 
     Ok(())
