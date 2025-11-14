@@ -1977,6 +1977,34 @@ fn run_diagnostics(path: &PathBuf, json: bool, threshold: Option<f64>) -> Result
         }
     }
 
+    // 大きなファイル (2GB以上)
+    let min_size = 2 * 1024 * 1024 * 1024; // 2GB
+    if let Ok(large_items) = kanri_core::large_files::find_large_items(
+        path,
+        min_size,
+        None, // extensions
+        true, // include_dirs
+        true, // include_files
+    ) {
+        let total_size: u64 = large_items.iter().map(|i| i.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "大きなファイル (2GB以上)".to_string(),
+                icon: "📁".to_string(),
+                count: large_items.len(),
+                total_size,
+                command_hint: format!(
+                    "kanri archive large-files -p {} --to archive/large-files --delete-after --dry-run",
+                    path.display()
+                ),
+                is_large: total_size > 10 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // 空のカテゴリ（count=0 または total_size=0）を除外
+    categories.retain(|c| c.count > 0 && c.total_size > 0);
+
     // 総計
     let total_size: u64 = categories.iter().map(|c| c.total_size).sum();
 
@@ -2030,13 +2058,23 @@ fn print_diagnostic_report(report: &DiagnosticReport) {
     );
     println!();
 
-    if !report.categories.is_empty() {
-        println!("{}", "💡 次のアクション:".cyan().bold());
-        for category in report.categories.iter().take(5) {
+    // 2GB以上のカテゴリのみを「次のアクション」に表示（サイズ順）
+    let mut actionable_categories: Vec<&DiagnosticCategory> = report
+        .categories
+        .iter()
+        .filter(|c| c.total_size >= 2 * 1024 * 1024 * 1024) // 2GB以上
+        .collect();
+
+    // サイズの大きい順にソート
+    actionable_categories.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+
+    if !actionable_categories.is_empty() {
+        println!("{}", "💡 次のアクション (2GB以上):".cyan().bold());
+        for category in actionable_categories.iter().take(5) {
             println!("  • {}", category.command_hint.dimmed());
         }
-        if report.categories.len() > 5 {
-            println!("  • ... 他 {} 件", report.categories.len() - 5);
+        if actionable_categories.len() > 5 {
+            println!("  • ... 他 {} 件", actionable_categories.len() - 5);
         }
     }
 
