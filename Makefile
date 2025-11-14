@@ -49,8 +49,15 @@ clippy:
 install: build
 	@echo "📦 Installing kanri..."
 	cargo install --path crates/kanri-cli --force
+	@echo "📝 Installing zsh completion..."
+	@mkdir -p ~/.zsh/completions
+	@./target/release/kanri completions zsh > ~/.zsh/completions/_kanri
 	@echo "✅ kanri installed successfully!"
 	@echo "Run: kanri --help"
+	@echo ""
+	@echo "💡 To enable zsh completions, add this to your ~/.zshrc if not already present:"
+	@echo "   fpath=(~/.zsh/completions \$$fpath)"
+	@echo "   autoload -U compinit && compinit"
 
 clean:
 	@echo "🧹 Cleaning build artifacts..."
