@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::Result;
+use crate::{Result, StorageClient};
 
 /// B2 CLI のラッパー
 pub struct B2Client {
@@ -207,6 +207,38 @@ impl B2Client {
             .collect();
 
         Ok(files)
+    }
+}
+
+impl StorageClient for B2Client {
+    fn authorize(&self) -> Result<()> {
+        B2Client::authorize(self)
+    }
+
+    fn upload_file(&self, bucket: &str, local_path: &Path, remote_path: &str) -> Result<String> {
+        B2Client::upload_file(self, bucket, local_path, remote_path)
+    }
+
+    fn upload_directory(
+        &self,
+        bucket: &str,
+        local_dir: &Path,
+        remote_prefix: &str,
+    ) -> Result<Vec<String>> {
+        B2Client::upload_directory(self, bucket, local_dir, remote_prefix)
+    }
+
+    fn download_file_by_name(
+        &self,
+        bucket: &str,
+        remote_path: &str,
+        local_path: &Path,
+    ) -> Result<()> {
+        B2Client::download_file_by_name(self, bucket, remote_path, local_path)
+    }
+
+    fn list_files(&self, bucket: &str, prefix: &str) -> Result<Vec<String>> {
+        B2Client::list_files(self, bucket, prefix)
     }
 }
 

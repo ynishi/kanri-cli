@@ -1329,30 +1329,21 @@ fn archive_large_files(
     delete_after: bool,
     dry_run: bool,
 ) -> Result<()> {
-    use kanri_core::{archive, b2, config, large_files};
+    use kanri_core::{archive, config, large_files};
 
     println!("{}", "📦 アーカイブ処理を開始...".cyan().bold());
 
     // 設定読み込み
     let config = config::Config::load()?;
     let bucket = config.get_b2_bucket()?;
-    let (key_id, key) = config.get_b2_credentials()?;
+    let backend = config.get_storage_backend();
 
-    // B2 CLI チェック
-    if !b2::B2Client::is_installed() {
-        eprintln!("{}", "❌ B2 CLI がインストールされていません".red());
-        eprintln!(
-            "{}",
-            "インストール: pip install b2 または brew install b2-tools".yellow()
-        );
-        return Ok(());
-    }
+    // Storage client を作成
+    let storage_client = config.create_storage_client()?;
 
-    let b2_client = b2::B2Client::new(key_id, key)?;
-
-    // B2 に認証（一度だけ）
-    println!("{}", "🔐 B2 認証中...".cyan());
-    b2_client.authorize()?;
+    // 認証
+    println!("{}", format!("🔐 {} 認証中...", backend.to_uppercase()).cyan());
+    storage_client.authorize()?;
 
     // 大きなファイルを検索
     let min_size = min_size_gb * 1024 * 1024 * 1024;
@@ -1437,9 +1428,9 @@ fn archive_large_files(
         println!("  📤 {} -> {}", item.path.display(), remote_path.display().to_string().green());
 
         if item.is_dir {
-            let _files = b2_client.upload_directory(&bucket, &item.path, &remote_path_str)?;
+            let _files = storage_client.upload_directory(&bucket, &item.path, &remote_path_str)?;
         } else {
-            let _file_id = b2_client.upload_file(&bucket, &item.path, &remote_path_str)?;
+            let _file_id = storage_client.upload_file(&bucket, &item.path, &remote_path_str)?;
         }
 
         let archive_item = archive::ArchiveItem::from_file(&item.path, remote_path_str.to_string())?;
@@ -1485,7 +1476,7 @@ fn restore_archive(
     version: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
-    use kanri_core::{b2, config};
+    use kanri_core::config;
     use std::collections::HashMap;
 
     println!("{}", "📥 アーカイブ復元処理を開始...".cyan().bold());
@@ -1493,17 +1484,17 @@ fn restore_archive(
     // 設定読み込み
     let config = config::Config::load()?;
     let bucket = config.get_b2_bucket()?;
-    let (key_id, key) = config.get_b2_credentials()?;
+    let backend = config.get_storage_backend();
 
-    let b2_client = b2::B2Client::new(key_id, key)?;
+    let storage_client = config.create_storage_client()?;
 
-    // B2 に認証（一度だけ）
-    println!("{}", "🔐 B2 認証中...".cyan());
-    b2_client.authorize()?;
+    // 認証
+    println!("{}", format!("🔐 {} 認証中...", backend.to_uppercase()).cyan());
+    storage_client.authorize()?;
 
-    // B2 からファイル一覧を取得
-    println!("{}", "📋 B2 からファイル一覧を取得中...".cyan());
-    let all_files = b2_client.list_files(&bucket, from)?;
+    // ファイル一覧を取得
+    println!("{}", format!("📋 {} からファイル一覧を取得中...", backend.to_uppercase()).cyan());
+    let all_files = storage_client.list_files(&bucket, from)?;
 
     if all_files.is_empty() {
         println!("{}", "⚠️ 該当するファイルが見つかりませんでした".yellow());
@@ -1634,7 +1625,7 @@ fn restore_archive(
             std::fs::create_dir_all(parent)?;
         }
 
-        b2_client.download_file_by_name(&bucket, remote_file, &full_local_path)?;
+        storage_client.download_file_by_name(&bucket, remote_file, &full_local_path)?;
         println!("    {}", "✅ 完了".green());
     }
 

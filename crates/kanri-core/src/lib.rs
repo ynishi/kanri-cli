@@ -12,9 +12,12 @@ pub mod haskell;
 pub mod large_files;
 pub mod node;
 pub mod python;
+pub mod rclone;
 pub mod rust;
+pub mod storage;
 pub mod utils;
 pub mod xcode;
 
 pub use cleanable::{Cleanable, CleanableItem, CleanableMetadata};
 pub use error::{Error, Result};
+pub use storage::StorageClient;
