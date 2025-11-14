@@ -1,5 +1,6 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::{generate, Shell};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{self, Write};
@@ -67,6 +68,13 @@ enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+
+    /// シェル補完スクリプトを生成
+    Completions {
+        /// シェルの種類
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
 
@@ -513,6 +521,9 @@ fn main() -> Result<()> {
             } => init_b2_config(bucket, key_id, key)?,
             ConfigAction::TestB2 => test_b2_auth()?,
         },
+        Commands::Completions { shell } => {
+            generate_completions(shell)?;
+        }
     }
 
     Ok(())
@@ -1738,6 +1749,15 @@ fn test_b2_auth() -> Result<()> {
             eprintln!("  3. 再度テスト: kanri config test-b2");
         }
     }
+
+    Ok(())
+}
+
+fn generate_completions(shell: Shell) -> Result<()> {
+    let mut cmd = Cli::command();
+    let bin_name = cmd.get_name().to_string();
+
+    generate(shell, &mut cmd, bin_name, &mut io::stdout());
 
     Ok(())
 }
