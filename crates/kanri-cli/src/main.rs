@@ -1417,8 +1417,8 @@ fn archive_large_files(
         println!("\n{}", "アップロード予定:".cyan().bold());
         for item in &items {
             let relative_path = item.path.strip_prefix(&path).unwrap_or(item.path.as_path());
-            let remote_path = format!("{}/{}", versioned_path, relative_path.to_string_lossy());
-            println!("  {} -> {}", item.path.display(), remote_path.green());
+            let remote_path = PathBuf::from(&versioned_path).join(relative_path);
+            println!("  {} -> {}", item.path.display(), remote_path.display().to_string().green());
         }
         return Ok(());
     }
@@ -1430,19 +1430,19 @@ fn archive_large_files(
     println!("\n{}", "⬆️ B2 にアップロード中...".cyan().bold());
 
     for item in &items {
-        // 検索パスからの相対パスを保持
         let relative_path = item.path.strip_prefix(&path).unwrap_or(item.path.as_path());
-        let remote_path = format!("{}/{}", versioned_path, relative_path.to_string_lossy());
+        let remote_path = PathBuf::from(&versioned_path).join(relative_path);
+        let remote_path_str = remote_path.to_string_lossy();
 
-        println!("  📤 {} -> {}", item.path.display(), remote_path.green());
+        println!("  📤 {} -> {}", item.path.display(), remote_path.display().to_string().green());
 
         if item.is_dir {
-            let _files = b2_client.upload_directory(&bucket, &item.path, &remote_path)?;
+            let _files = b2_client.upload_directory(&bucket, &item.path, &remote_path_str)?;
         } else {
-            let _file_id = b2_client.upload_file(&bucket, &item.path, &remote_path)?;
+            let _file_id = b2_client.upload_file(&bucket, &item.path, &remote_path_str)?;
         }
 
-        let archive_item = archive::ArchiveItem::from_file(&item.path, remote_path)?;
+        let archive_item = archive::ArchiveItem::from_file(&item.path, remote_path_str.to_string())?;
         archive_record.add_item(archive_item);
 
         println!("    {}", "✅ 完了".green());

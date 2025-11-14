@@ -85,6 +85,11 @@ pub fn find_large_items(
             metadata.len()
         };
 
+        // 検索パス自身は除外（サブディレクトリのみを対象とする）
+        if path == search_path {
+            continue;
+        }
+
         // サイズ閾値でフィルタ
         if size >= min_size {
             items.push(LargeItem {

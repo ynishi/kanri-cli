@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::Result;
@@ -165,13 +165,10 @@ impl B2Client {
                 .strip_prefix(local_dir)
                 .map_err(|e| crate::Error::B2(format!("Failed to get relative path: {}", e)))?;
 
-            let remote_path = if remote_prefix.is_empty() {
-                relative_path.to_string_lossy().to_string()
-            } else {
-                format!("{}/{}", remote_prefix, relative_path.to_string_lossy())
-            };
+            let remote_path = PathBuf::from(remote_prefix).join(relative_path);
+            let remote_path_str = remote_path.to_string_lossy();
 
-            let file_id = self.upload_file(bucket, local_path, &remote_path)?;
+            let file_id = self.upload_file(bucket, local_path, &remote_path_str)?;
             uploaded.push(file_id);
         }
 
@@ -216,6 +213,34 @@ impl B2Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_pathbuf_join_for_b2() {
+        // PathBufでパスを結合してから文字列化
+        let base = PathBuf::from("files/20251114_130523");
+        let relative = PathBuf::from("training/lora_output");
+        let joined = base.join(relative);
+        let result = joined.to_string_lossy();
+
+        assert_eq!(result, "files/20251114_130523/training/lora_output");
+
+        // 空のrelativeパス（PathBuf::join("")は末尾に/を追加する）
+        let base = PathBuf::from("files/20251114_130523");
+        let relative = PathBuf::from("");
+        let joined = base.join(relative);
+        let result = joined.to_string_lossy();
+
+        // 空文字列をjoinすると末尾に/が付く（PathBufの仕様）
+        assert_eq!(result, "files/20251114_130523/");
+
+        // ネストされたパス
+        let base = PathBuf::from("base");
+        let relative = PathBuf::from("sub/dir/file.txt");
+        let joined = base.join(relative);
+        let result = joined.to_string_lossy();
+
+        assert_eq!(result, "base/sub/dir/file.txt");
+    }
 
     #[test]
     fn test_b2_cli_check() {
