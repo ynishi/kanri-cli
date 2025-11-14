@@ -87,6 +87,71 @@ impl Config {
         Ok(())
     }
 
+    /// テンプレート付きで設定を保存（未定義項目をコメントアウトで表示）
+    pub fn save_with_template(&self) -> Result<()> {
+        let path = Self::config_path()?;
+
+        // ディレクトリを作成
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                crate::Error::Config(format!("Failed to create config directory: {}", e))
+            })?;
+        }
+
+        let mut content = String::new();
+
+        // B2 設定
+        if let Some(b2) = &self.b2 {
+            content.push_str(&format!("[b2]\n"));
+            content.push_str(&format!("bucket = \"{}\"\n", b2.bucket));
+            if let Some(key_id) = &b2.application_key_id {
+                content.push_str(&format!("application_key_id = \"{}\"\n", key_id));
+            } else {
+                content.push_str("# application_key_id = \"your-key-id\"\n");
+            }
+            if let Some(key) = &b2.application_key {
+                content.push_str(&format!("application_key = \"{}\"\n", key));
+            } else {
+                content.push_str("# application_key = \"your-key\"\n");
+            }
+            content.push_str("\n");
+        } else {
+            content.push_str("# [b2]\n");
+            content.push_str("# bucket = \"my-bucket\"\n");
+            content.push_str("# application_key_id = \"your-key-id\"\n");
+            content.push_str("# application_key = \"your-key\"\n");
+            content.push_str("\n");
+        }
+
+        // Storage 設定
+        if let Some(storage) = &self.storage {
+            content.push_str(&format!("[storage]\n"));
+            content.push_str(&format!("backend = \"{}\"\n", storage.backend));
+            if let Some(remote) = &storage.rclone_remote {
+                content.push_str(&format!("rclone_remote = \"{}\"\n", remote));
+            } else {
+                content.push_str("# rclone_remote = \"b2:my-bucket\"\n");
+            }
+            content.push_str("\n");
+        } else {
+            content.push_str("# [storage]\n");
+            content.push_str("# backend = \"b2\"  # or \"rclone\"\n");
+            content.push_str("# rclone_remote = \"b2:my-bucket\"  # required when backend = \"rclone\"\n");
+            content.push_str("\n");
+        }
+
+        // ヘッダーコメントを追加
+        let header = "# Kanri Configuration File\n\
+                      # See https://github.com/yourusername/kanri for more details\n\n";
+        let final_content = format!("{}{}", header, content);
+
+        fs::write(&path, final_content).map_err(|e| {
+            crate::Error::Config(format!("Failed to write config file: {}", e))
+        })?;
+
+        Ok(())
+    }
+
     /// B2 認証情報を取得（環境変数優先）
     pub fn get_b2_credentials(&self) -> Result<(String, String)> {
         // 環境変数を優先
@@ -232,5 +297,47 @@ mod tests {
         };
 
         assert_eq!(config.get_storage_backend(), "rclone");
+    }
+
+    #[test]
+    fn test_save_with_template() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+
+        // テスト用に環境変数を一時的に設定
+        std::env::set_var("HOME", temp.path());
+
+        let config = Config {
+            b2: Some(B2Config {
+                bucket: "test-bucket".to_string(),
+                application_key_id: None,
+                application_key: None,
+            }),
+            storage: None,
+        };
+
+        // テンプレート保存
+        config.save_with_template().unwrap();
+
+        // ファイルを読み込んで検証
+        let saved_path = temp.path().join(".kanri/config.toml");
+        let content = std::fs::read_to_string(&saved_path).unwrap();
+
+        // ヘッダーが含まれているか
+        assert!(content.contains("# Kanri Configuration File"));
+
+        // B2設定が含まれているか
+        assert!(content.contains("[b2]"));
+        assert!(content.contains("bucket = \"test-bucket\""));
+
+        // コメントアウトされた未定義項目が含まれているか
+        assert!(content.contains("# application_key_id = \"your-key-id\""));
+        assert!(content.contains("# application_key = \"your-key\""));
+
+        // Storage設定がコメントアウトで含まれているか
+        assert!(content.contains("# [storage]"));
+        assert!(content.contains("# backend = \"b2\""));
+        assert!(content.contains("# rclone_remote = \"b2:my-bucket\""));
     }
 }

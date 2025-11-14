@@ -1720,7 +1720,7 @@ fn init_b2_config(bucket: String, key_id: Option<String>, key: Option<String>) -
         application_key: key,
     });
 
-    config.save()?;
+    config.save_with_template()?;
 
     println!(
         "{}",
