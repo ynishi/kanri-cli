@@ -3,6 +3,8 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use kanri_core::Cleanable;
+use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -75,6 +77,21 @@ enum Commands {
         /// シェルの種類
         #[arg(value_enum)]
         shell: Shell,
+    },
+
+    /// システム全体の診断を実行（削除可能な項目をサマリー表示）
+    Diagnose {
+        /// JSON形式で出力
+        #[arg(long)]
+        json: bool,
+
+        /// 最小サイズ閾値（GB）
+        #[arg(long)]
+        threshold: Option<f64>,
+
+        /// 検索開始ディレクトリ（デフォルト: カレントディレクトリ）
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
     },
 }
 
@@ -523,6 +540,13 @@ fn main() -> Result<()> {
         },
         Commands::Completions { shell } => {
             generate_completions(shell)?;
+        }
+        Commands::Diagnose {
+            json,
+            threshold,
+            path,
+        } => {
+            run_diagnostics(&path, json, threshold)?;
         }
     }
 
@@ -1760,4 +1784,265 @@ fn generate_completions(shell: Shell) -> Result<()> {
     generate(shell, &mut cmd, bin_name, &mut io::stdout());
 
     Ok(())
+}
+
+// ========== Diagnostic Functions ==========
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DiagnosticCategory {
+    name: String,
+    icon: String,
+    count: usize,
+    total_size: u64,
+    command_hint: String,
+    is_large: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DiagnosticReport {
+    categories: Vec<DiagnosticCategory>,
+    total_size: u64,
+    timestamp: String,
+}
+
+fn run_diagnostics(path: &PathBuf, json: bool, threshold: Option<f64>) -> Result<()> {
+    if !json {
+        println!("{}", "🔍 システム診断を実行中...".cyan().bold());
+        println!();
+    }
+
+    let threshold_bytes = threshold.map(|gb| (gb * 1024.0 * 1024.0 * 1024.0) as u64);
+
+    let mut categories = Vec::new();
+
+    // Rust プロジェクト
+    if let Ok(projects) = kanri_core::rust::find_rust_projects(path) {
+        let total_size: u64 = projects.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Rust プロジェクト".to_string(),
+                icon: "🦀".to_string(),
+                count: projects.len(),
+                total_size,
+                command_hint: format!("kanri clean rust -p {} -i", path.display()),
+                is_large: total_size > 5 * 1024 * 1024 * 1024, // 5GB以上
+            });
+        }
+    }
+
+    // Node.js プロジェクト
+    if let Ok(projects) = kanri_core::node::find_node_projects(path) {
+        let total_size: u64 = projects.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Node.js プロジェクト".to_string(),
+                icon: "📦".to_string(),
+                count: projects.len(),
+                total_size,
+                command_hint: format!("kanri clean node -p {} -i", path.display()),
+                is_large: total_size > 10 * 1024 * 1024 * 1024, // 10GB以上
+            });
+        }
+    }
+
+    // Flutter プロジェクト
+    if let Ok(projects) = kanri_core::flutter::find_flutter_projects(path) {
+        let total_size: u64 = projects.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Flutter プロジェクト".to_string(),
+                icon: "🦋".to_string(),
+                count: projects.len(),
+                total_size,
+                command_hint: format!("kanri clean flutter -p {} -i", path.display()),
+                is_large: total_size > 5 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // Python 仮想環境
+    let python_cleaner = kanri_core::python::PythonCleaner::new(path.clone());
+    if let Ok(items) = python_cleaner.scan() {
+        let total_size: u64 = items.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Python 仮想環境".to_string(),
+                icon: "🐍".to_string(),
+                count: items.len(),
+                total_size,
+                command_hint: format!("kanri clean python -p {} -i", path.display()),
+                is_large: total_size > 3 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // Haskell プロジェクト
+    let haskell_cleaner = kanri_core::haskell::HaskellCleaner::new(path.clone());
+    if let Ok(items) = haskell_cleaner.scan() {
+        let total_size: u64 = items.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Haskell プロジェクト".to_string(),
+                icon: "λ".to_string(),
+                count: items.len(),
+                total_size,
+                command_hint: format!("kanri clean haskell -p {} -i", path.display()),
+                is_large: total_size > 2 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // Docker
+    if kanri_core::docker::is_docker_installed() && kanri_core::docker::is_docker_running() {
+        if let Ok(info) = kanri_core::docker::get_system_info() {
+            // reclaimable は "X.X GB" のような形式なので、パースする
+            if let Some(size_str) = info.reclaimable.split_whitespace().next() {
+                if let Ok(size_gb) = size_str.parse::<f64>() {
+                    let total_size = (size_gb * 1024.0 * 1024.0 * 1024.0) as u64;
+                    if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+                        categories.push(DiagnosticCategory {
+                            name: "Docker".to_string(),
+                            icon: "🐳".to_string(),
+                            count: 1,
+                            total_size,
+                            command_hint: "kanri clean docker -i".to_string(),
+                            is_large: total_size > 5 * 1024 * 1024 * 1024,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Go モジュールキャッシュ
+    let go_cleaner = kanri_core::go::GoCleaner::new();
+    if let Ok(items) = go_cleaner.scan() {
+        let total_size: u64 = items.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Go モジュールキャッシュ".to_string(),
+                icon: "🐹".to_string(),
+                count: items.len(),
+                total_size,
+                command_hint: "kanri clean go -i".to_string(),
+                is_large: total_size > 2 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // Gradle キャッシュ
+    let gradle_cleaner = kanri_core::gradle::GradleCleaner::new();
+    if let Ok(items) = gradle_cleaner.scan() {
+        let total_size: u64 = items.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Gradle キャッシュ".to_string(),
+                icon: "🐘".to_string(),
+                count: items.len(),
+                total_size,
+                command_hint: "kanri clean gradle -i".to_string(),
+                is_large: total_size > 3 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // Xcode DerivedData
+    let xcode_cleaner = kanri_core::xcode::XcodeCleaner::new();
+    if let Ok(items) = xcode_cleaner.scan() {
+        let total_size: u64 = items.iter().map(|p| p.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "Xcode DerivedData".to_string(),
+                icon: "🍎".to_string(),
+                count: items.len(),
+                total_size,
+                command_hint: "kanri clean xcode -i".to_string(),
+                is_large: total_size > 5 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // アプリケーションキャッシュ (1GB以上)
+    if let Ok(caches) = kanri_core::cache::scan_user_caches(1) {
+        let total_size: u64 = caches.iter().map(|c| c.size).sum();
+        if threshold_bytes.is_none() || total_size >= threshold_bytes.unwrap() {
+            categories.push(DiagnosticCategory {
+                name: "アプリケーションキャッシュ (1GB以上)".to_string(),
+                icon: "💾".to_string(),
+                count: caches.len(),
+                total_size,
+                command_hint: "kanri clean cache -i".to_string(),
+                is_large: total_size > 10 * 1024 * 1024 * 1024,
+            });
+        }
+    }
+
+    // 総計
+    let total_size: u64 = categories.iter().map(|c| c.total_size).sum();
+
+    let report = DiagnosticReport {
+        categories,
+        total_size,
+        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_diagnostic_report(&report);
+    }
+
+    Ok(())
+}
+
+fn print_diagnostic_report(report: &DiagnosticReport) {
+    if report.categories.is_empty() {
+        println!("{}", "✨ クリーンアップ可能な項目が見つかりませんでした".green());
+        return;
+    }
+
+    println!("{}", "━".repeat(60).dimmed());
+    println!("{}", "📊 クリーンアップ可能な項目".cyan().bold());
+    println!();
+
+    for category in &report.categories {
+        let size_str = kanri_core::utils::format_size(category.total_size);
+        let warning = if category.is_large {
+            " ⚠️  (大)".yellow().to_string()
+        } else {
+            "".to_string()
+        };
+
+        println!("{} {}", category.icon, category.name.bright_white().bold());
+        println!("  • {} 件", category.count.to_string().cyan());
+        println!("  • 合計: {}{}", size_str.yellow().bold(), warning);
+        println!();
+    }
+
+    println!("{}", "━".repeat(60).dimmed());
+    println!("{}", "📈 サマリー".cyan().bold());
+    println!();
+    println!(
+        "  合計削除可能: {}",
+        kanri_core::utils::format_size(report.total_size)
+            .yellow()
+            .bold()
+    );
+    println!();
+
+    if !report.categories.is_empty() {
+        println!("{}", "💡 次のアクション:".cyan().bold());
+        for category in report.categories.iter().take(5) {
+            println!("  • {}", category.command_hint.dimmed());
+        }
+        if report.categories.len() > 5 {
+            println!("  • ... 他 {} 件", report.categories.len() - 5);
+        }
+    }
+
+    println!();
+    println!(
+        "{}",
+        format!("診断実行日時: {}", report.timestamp).dimmed()
+    );
 }
