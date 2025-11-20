@@ -17,9 +17,7 @@ impl B2Client {
             ));
         }
         if key.is_empty() {
-            return Err(crate::Error::Config(
-                "B2 Application Key is empty".into(),
-            ));
+            return Err(crate::Error::Config("B2 Application Key is empty".into()));
         }
         Ok(Self { key_id, key })
     }

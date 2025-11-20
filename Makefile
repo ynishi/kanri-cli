@@ -1,4 +1,4 @@
-.PHONY: help build build-dev test check fmt clippy install clean run-help run-clean run-archive preflight version bump-patch bump-minor bump-major tag
+.PHONY: help build build-dev test check fmt clippy install install-agent clean run-help run-clean run-archive preflight version bump-patch bump-minor bump-major tag
 
 help:
 	@echo "🛠️  Kanri - Mac ローカル環境管理ツール"
@@ -11,6 +11,7 @@ help:
 	@echo "  make fmt            - Format code"
 	@echo "  make clippy         - Run clippy lints"
 	@echo "  make install        - Install kanri locally"
+	@echo "  make install-agent  - Install kanri-agent locally"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make preflight      - Run all checks before commit/PR"
 	@echo ""
@@ -58,6 +59,14 @@ install: build
 	@echo "💡 To enable zsh completions, add this to your ~/.zshrc if not already present:"
 	@echo "   fpath=(~/.zsh/completions \$$fpath)"
 	@echo "   autoload -U compinit && compinit"
+
+install-agent:
+	@echo "🤖 Building kanri-agent..."
+	cargo build --release -p kanri-agent
+	@echo "📦 Installing kanri-agent..."
+	cargo install --path crates/kanri-agent-cli --force
+	@echo "✅ kanri-agent installed successfully!"
+	@echo "Run: kanri-agent --help"
 
 clean:
 	@echo "🧹 Cleaning build artifacts..."

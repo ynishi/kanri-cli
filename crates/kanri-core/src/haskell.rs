@@ -41,10 +41,7 @@ pub fn find_haskell_builds(search_path: &Path) -> Result<Vec<HaskellBuild>> {
 
         // .stack-work, dist, dist-newstyle ディレクトリを検出
         if entry.file_type().is_dir()
-            && matches!(
-                file_name.as_ref(),
-                ".stack-work" | "dist" | "dist-newstyle"
-            )
+            && matches!(file_name.as_ref(), ".stack-work" | "dist" | "dist-newstyle")
         {
             if let Some(project_root) = path.parent() {
                 // Haskell プロジェクトか確認（*.cabal または stack.yaml の存在）
@@ -52,17 +49,18 @@ pub fn find_haskell_builds(search_path: &Path) -> Result<Vec<HaskellBuild>> {
                     .read_dir()
                     .ok()
                     .and_then(|mut entries| {
-                        entries.any(|e| {
-                            e.ok()
-                                .and_then(|e| {
-                                    e.path()
-                                        .extension()
-                                        .and_then(|ext| ext.to_str())
-                                        .map(|ext| ext == "cabal")
-                                })
-                                .unwrap_or(false)
-                        })
-                        .then_some(())
+                        entries
+                            .any(|e| {
+                                e.ok()
+                                    .and_then(|e| {
+                                        e.path()
+                                            .extension()
+                                            .and_then(|ext| ext.to_str())
+                                            .map(|ext| ext == "cabal")
+                                    })
+                                    .unwrap_or(false)
+                            })
+                            .then_some(())
                     })
                     .is_some();
 

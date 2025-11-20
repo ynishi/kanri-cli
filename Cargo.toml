@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/kanri-cli",
     "crates/kanri-core",
+    "crates/kanri-agent-cli",
+    "crates/kanri-agent-core",
 ]
 
 [workspace.package]

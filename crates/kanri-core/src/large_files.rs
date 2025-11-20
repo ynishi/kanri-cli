@@ -156,11 +156,7 @@ impl Cleanable for LargeFilesCleaner {
             .into_iter()
             .map(|item| {
                 let type_label = if item.is_dir { "dir" } else { "file" };
-                let name = format!(
-                    "{} ({})",
-                    item.path.display(),
-                    type_label
-                );
+                let name = format!("{} ({})", item.path.display(), type_label);
                 CleanableItem::new(name, item.path, item.size)
             })
             .collect())
@@ -197,13 +193,7 @@ mod tests {
         file.set_len(1024 * 1024 * 1024)?; // 1GB
 
         // 2GB 閾値で検索
-        let items = find_large_items(
-            test_dir,
-            2 * 1024 * 1024 * 1024,
-            None,
-            false,
-            true,
-        )?;
+        let items = find_large_items(test_dir, 2 * 1024 * 1024 * 1024, None, false, true)?;
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].path, large_file);
@@ -270,31 +260,22 @@ mod tests {
         file.set_len(100 * 1024 * 1024)?; // 100MB
 
         // ディレクトリのみを検索（4GB閾値でprojects_dirを除外）
-        let items = find_large_items(
-            &projects_dir,
-            4 * 1024 * 1024 * 1024,
-            None,
-            true,
-            false,
-        )?;
+        let items = find_large_items(&projects_dir, 4 * 1024 * 1024 * 1024, None, true, false)?;
 
         // large_dir は検出されないはず（3GBで4GB未満）
         assert_eq!(items.len(), 0);
 
         // 2GB閾値で再度検索
-        let items = find_large_items(
-            &projects_dir,
-            2 * 1024 * 1024 * 1024,
-            None,
-            true,
-            false,
-        )?;
+        let items = find_large_items(&projects_dir, 2 * 1024 * 1024 * 1024, None, true, false)?;
 
         // large_dir と projects_dir の両方が検出される可能性がある
         // large_dir のみが含まれることを確認
         let large_dir_found = items.iter().any(|item| item.path == large_dir);
         assert!(large_dir_found, "large_dir should be found");
-        assert!(items.iter().all(|item| item.is_dir), "all items should be directories");
+        assert!(
+            items.iter().all(|item| item.is_dir),
+            "all items should be directories"
+        );
 
         // large_dirのサイズを確認
         let large_item = items.iter().find(|item| item.path == large_dir).unwrap();

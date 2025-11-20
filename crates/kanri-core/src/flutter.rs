@@ -2,7 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use crate::{cleanable::{Cleanable, CleanableItem}, utils, Result};
+use crate::{
+    cleanable::{Cleanable, CleanableItem},
+    utils, Result,
+};
 
 /// Flutter プロジェクト情報
 #[derive(Debug, Clone)]

@@ -54,13 +54,11 @@ impl Config {
             return Ok(Config::default());
         }
 
-        let content = fs::read_to_string(&path).map_err(|e| {
-            crate::Error::Config(format!("Failed to read config file: {}", e))
-        })?;
+        let content = fs::read_to_string(&path)
+            .map_err(|e| crate::Error::Config(format!("Failed to read config file: {}", e)))?;
 
-        let config: Config = toml::from_str(&content).map_err(|e| {
-            crate::Error::Config(format!("Failed to parse config file: {}", e))
-        })?;
+        let config: Config = toml::from_str(&content)
+            .map_err(|e| crate::Error::Config(format!("Failed to parse config file: {}", e)))?;
 
         Ok(config)
     }
@@ -76,13 +74,11 @@ impl Config {
             })?;
         }
 
-        let content = toml::to_string_pretty(self).map_err(|e| {
-            crate::Error::Config(format!("Failed to serialize config: {}", e))
-        })?;
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| crate::Error::Config(format!("Failed to serialize config: {}", e)))?;
 
-        fs::write(&path, content).map_err(|e| {
-            crate::Error::Config(format!("Failed to write config file: {}", e))
-        })?;
+        fs::write(&path, content)
+            .map_err(|e| crate::Error::Config(format!("Failed to write config file: {}", e)))?;
 
         Ok(())
     }
@@ -102,7 +98,7 @@ impl Config {
 
         // B2 設定
         if let Some(b2) = &self.b2 {
-            content.push_str(&format!("[b2]\n"));
+            content.push_str("[b2]\n");
             content.push_str(&format!("bucket = \"{}\"\n", b2.bucket));
             if let Some(key_id) = &b2.application_key_id {
                 content.push_str(&format!("application_key_id = \"{}\"\n", key_id));
@@ -114,30 +110,32 @@ impl Config {
             } else {
                 content.push_str("# application_key = \"your-key\"\n");
             }
-            content.push_str("\n");
+            content.push('\n');
         } else {
             content.push_str("# [b2]\n");
             content.push_str("# bucket = \"my-bucket\"\n");
             content.push_str("# application_key_id = \"your-key-id\"\n");
             content.push_str("# application_key = \"your-key\"\n");
-            content.push_str("\n");
+            content.push('\n');
         }
 
         // Storage 設定
         if let Some(storage) = &self.storage {
-            content.push_str(&format!("[storage]\n"));
+            content.push_str("[storage]\n");
             content.push_str(&format!("backend = \"{}\"\n", storage.backend));
             if let Some(remote) = &storage.rclone_remote {
                 content.push_str(&format!("rclone_remote = \"{}\"\n", remote));
             } else {
                 content.push_str("# rclone_remote = \"b2:my-bucket\"\n");
             }
-            content.push_str("\n");
+            content.push('\n');
         } else {
             content.push_str("# [storage]\n");
             content.push_str("# backend = \"b2\"  # or \"rclone\"\n");
-            content.push_str("# rclone_remote = \"b2:my-bucket\"  # required when backend = \"rclone\"\n");
-            content.push_str("\n");
+            content.push_str(
+                "# rclone_remote = \"b2:my-bucket\"  # required when backend = \"rclone\"\n",
+            );
+            content.push('\n');
         }
 
         // ヘッダーコメントを追加
@@ -145,9 +143,8 @@ impl Config {
                       # See https://github.com/yourusername/kanri for more details\n\n";
         let final_content = format!("{}{}", header, content);
 
-        fs::write(&path, final_content).map_err(|e| {
-            crate::Error::Config(format!("Failed to write config file: {}", e))
-        })?;
+        fs::write(&path, final_content)
+            .map_err(|e| crate::Error::Config(format!("Failed to write config file: {}", e)))?;
 
         Ok(())
     }
@@ -160,7 +157,7 @@ impl Config {
                 self.b2
                     .as_ref()
                     .and_then(|b2| b2.application_key_id.clone())
-                    .ok_or_else(|| env::VarError::NotPresent)
+                    .ok_or(env::VarError::NotPresent)
             })
             .map_err(|_| {
                 crate::Error::Config(
@@ -173,7 +170,7 @@ impl Config {
                 self.b2
                     .as_ref()
                     .and_then(|b2| b2.application_key.clone())
-                    .ok_or_else(|| env::VarError::NotPresent)
+                    .ok_or(env::VarError::NotPresent)
             })
             .map_err(|_| {
                 crate::Error::Config("B2_APPLICATION_KEY not found in environment or config".into())
@@ -209,9 +206,7 @@ impl Config {
                     .storage
                     .as_ref()
                     .and_then(|s| s.rclone_remote.clone())
-                    .ok_or_else(|| {
-                        crate::Error::Config("Rclone remote not configured".into())
-                    })?;
+                    .ok_or_else(|| crate::Error::Config("Rclone remote not configured".into()))?;
                 let client = crate::rclone::RcloneClient::new(remote)?;
                 Ok(Box::new(client))
             }

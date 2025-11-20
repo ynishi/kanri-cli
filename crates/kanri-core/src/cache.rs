@@ -43,8 +43,8 @@ const SAFE_CACHE_PATTERNS: &[&str] = &[
     "npm",
     "pnpm",
     "CocoaPods",
-    "com.apple.bird",          // iCloud sync
-    "com.apple.metal",         // Metal shader cache
+    "com.apple.bird",  // iCloud sync
+    "com.apple.metal", // Metal shader cache
     "com.spotify.client",
     "Google/Chrome",
     "Firefox",
@@ -58,7 +58,9 @@ const SAFE_CACHE_PATTERNS: &[&str] = &[
 
 /// キャッシュエントリが安全かどうかチェック
 fn is_safe_cache(name: &str) -> bool {
-    SAFE_CACHE_PATTERNS.iter().any(|pattern| name.contains(pattern))
+    SAFE_CACHE_PATTERNS
+        .iter()
+        .any(|pattern| name.contains(pattern))
 }
 
 /// ユーザーの Library/Caches ディレクトリをスキャン

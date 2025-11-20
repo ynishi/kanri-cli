@@ -109,8 +109,9 @@ impl StorageClient for RcloneClient {
 
         // 親ディレクトリを作成
         if let Some(parent) = local_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| crate::Error::B2(format!("Failed to create parent directory: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                crate::Error::B2(format!("Failed to create parent directory: {}", e))
+            })?;
         }
 
         let output = Command::new("rclone")
@@ -154,7 +155,10 @@ impl StorageClient for RcloneClient {
                 if prefix.is_empty() {
                     line.to_string()
                 } else {
-                    PathBuf::from(prefix).join(line).to_string_lossy().to_string()
+                    PathBuf::from(prefix)
+                        .join(line)
+                        .to_string_lossy()
+                        .to_string()
                 }
             })
             .collect();

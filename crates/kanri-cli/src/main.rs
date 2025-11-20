@@ -450,7 +450,13 @@ fn main() -> Result<()> {
                 interactive,
             } => {
                 let cleaner = kanri_core::haskell::HaskellCleaner::new(path);
-                clean_generic(&cleaner, "*.cabal or stack.yaml", search, delete, interactive)?
+                clean_generic(
+                    &cleaner,
+                    "*.cabal or stack.yaml",
+                    search,
+                    delete,
+                    interactive,
+                )?
             }
             CleanTarget::Xcode {
                 search,
@@ -508,18 +514,16 @@ fn main() -> Result<()> {
                 to,
                 delete_after,
                 dry_run,
-            } => {
-                archive_large_files(
-                    path,
-                    min_size_gb,
-                    extensions,
-                    files_only,
-                    dirs_only,
-                    to,
-                    delete_after,
-                    dry_run,
-                )?
-            }
+            } => archive_large_files(
+                path,
+                min_size_gb,
+                extensions,
+                files_only,
+                dirs_only,
+                to,
+                delete_after,
+                dry_run,
+            )?,
         },
         Commands::Restore {
             from,
@@ -613,10 +617,7 @@ fn clean_rust(search_path: &PathBuf, search: bool, delete: bool, interactive: bo
 
     // インタラクティブモード
     if interactive {
-        print!(
-            "\n{} 本当に削除しますか? (y/N): ",
-            "⚠".yellow().bold()
-        );
+        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -674,7 +675,10 @@ fn clean_node(search_path: &PathBuf, search: bool, delete: bool, interactive: bo
     spinner.finish_and_clear();
 
     if projects.is_empty() {
-        println!("{}", "✨ node_modules ディレクトリが見つかりませんでした".green());
+        println!(
+            "{}",
+            "✨ node_modules ディレクトリが見つかりませんでした".green()
+        );
         return Ok(());
     }
 
@@ -718,10 +722,7 @@ fn clean_node(search_path: &PathBuf, search: bool, delete: bool, interactive: bo
 
     // インタラクティブモード
     if interactive {
-        print!(
-            "\n{} 本当に削除しますか? (y/N): ",
-            "⚠".yellow().bold()
-        );
+        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -763,7 +764,13 @@ fn clean_node(search_path: &PathBuf, search: bool, delete: bool, interactive: bo
     Ok(())
 }
 
-fn clean_docker(search: bool, delete: bool, interactive: bool, all: bool, volumes: bool) -> Result<()> {
+fn clean_docker(
+    search: bool,
+    delete: bool,
+    interactive: bool,
+    all: bool,
+    volumes: bool,
+) -> Result<()> {
     println!("{}", "🐳 Docker システムをチェック中...".cyan().bold());
 
     // Docker がインストールされているかチェック
@@ -835,10 +842,7 @@ fn clean_docker(search: bool, delete: bool, interactive: bool, all: bool, volume
 
     // インタラクティブモード
     if interactive {
-        print!(
-            "\n{} 本当に削除しますか? (y/N): ",
-            "⚠".yellow().bold()
-        );
+        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -851,7 +855,10 @@ fn clean_docker(search: bool, delete: bool, interactive: bool, all: bool, volume
     }
 
     // 実行モード
-    println!("{}", "🗑️  Docker システムをクリーンアップ中...".red().bold());
+    println!(
+        "{}",
+        "🗑️  Docker システムをクリーンアップ中...".red().bold()
+    );
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -871,7 +878,12 @@ fn clean_docker(search: bool, delete: bool, interactive: bool, all: bool, volume
     Ok(())
 }
 
-fn clean_flutter(search_path: &PathBuf, search: bool, delete: bool, interactive: bool) -> Result<()> {
+fn clean_flutter(
+    search_path: &PathBuf,
+    search: bool,
+    delete: bool,
+    interactive: bool,
+) -> Result<()> {
     println!("{}", "🦋 Flutter プロジェクトをスキャン中...".cyan().bold());
 
     let spinner = ProgressBar::new_spinner();
@@ -887,7 +899,10 @@ fn clean_flutter(search_path: &PathBuf, search: bool, delete: bool, interactive:
     spinner.finish_and_clear();
 
     if projects.is_empty() {
-        println!("{}", "✨ Flutter プロジェクトが見つかりませんでした".green());
+        println!(
+            "{}",
+            "✨ Flutter プロジェクトが見つかりませんでした".green()
+        );
         return Ok(());
     }
 
@@ -931,10 +946,7 @@ fn clean_flutter(search_path: &PathBuf, search: bool, delete: bool, interactive:
 
     // インタラクティブモード
     if interactive {
-        print!(
-            "\n{} 本当に削除しますか? (y/N): ",
-            "⚠".yellow().bold()
-        );
+        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -976,21 +988,28 @@ fn clean_flutter(search_path: &PathBuf, search: bool, delete: bool, interactive:
     Ok(())
 }
 
-fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, safe_only: bool) -> Result<()> {
+fn clean_cache(
+    search: bool,
+    delete: bool,
+    interactive: bool,
+    min_size: u64,
+    safe_only: bool,
+) -> Result<()> {
     // Experimental 警告
     println!("{}", "⚠️  EXPERIMENTAL FEATURE".yellow().bold());
     println!(
         "{}",
-        "このコマンドは実験的な機能です。削除前に必ず内容を確認してください。"
-            .yellow()
+        "このコマンドは実験的な機能です。削除前に必ず内容を確認してください。".yellow()
     );
     println!();
 
-    println!("{}", "💾 Mac アプリケーションキャッシュをスキャン中...".cyan().bold());
     println!(
         "{}",
-        format!("最小サイズ: {} GB 以上", min_size).dimmed()
+        "💾 Mac アプリケーションキャッシュをスキャン中..."
+            .cyan()
+            .bold()
     );
+    println!("{}", format!("最小サイズ: {} GB 以上", min_size).dimmed());
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -1071,7 +1090,10 @@ fn clean_cache(search: bool, delete: bool, interactive: bool, min_size: u64, saf
     // インタラクティブモード: 各キャッシュごとに確認
     let caches_to_delete = if interactive {
         println!("\n{}", "各キャッシュについて個別に確認します".cyan());
-        println!("{}", "(y)削除 / (n)スキップ / (q)中断 / (a)全て削除".dimmed());
+        println!(
+            "{}",
+            "(y)削除 / (n)スキップ / (q)中断 / (a)全て削除".dimmed()
+        );
         println!();
 
         let mut selected_caches = Vec::new();
@@ -1272,10 +1294,7 @@ fn clean_generic(
 
     // インタラクティブモード
     if interactive {
-        print!(
-            "\n{} 本当に削除しますか? (y/N): ",
-            "⚠".yellow().bold()
-        );
+        print!("\n{} 本当に削除しますか? (y/N): ", "⚠".yellow().bold());
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -1342,16 +1361,23 @@ fn archive_large_files(
     let storage_client = config.create_storage_client()?;
 
     // 認証
-    println!("{}", format!("🔐 {} 認証中...", backend.to_uppercase()).cyan());
+    println!(
+        "{}",
+        format!("🔐 {} 認証中...", backend.to_uppercase()).cyan()
+    );
     storage_client.authorize()?;
 
     // 大きなファイルを検索
     let min_size = min_size_gb * 1024 * 1024 * 1024;
-    let ext_vec: Option<Vec<String>> = extensions.map(|s| s.split(',').map(|e| e.trim().to_string()).collect());
+    let ext_vec: Option<Vec<String>> =
+        extensions.map(|s| s.split(',').map(|e| e.trim().to_string()).collect());
 
     let (include_files, include_dirs) = match (files_only, dirs_only) {
         (true, true) => {
-            eprintln!("{}", "Error: --files-only and --dirs-only cannot be used together".red());
+            eprintln!(
+                "{}",
+                "Error: --files-only and --dirs-only cannot be used together".red()
+            );
             return Ok(());
         }
         (true, false) => (true, false),
@@ -1375,7 +1401,9 @@ fn archive_large_files(
     println!(
         "\n{} 件のアイテムが見つかりました (合計: {})",
         items.len().to_string().cyan().bold(),
-        kanri_core::utils::format_size(items.iter().map(|i| i.size).sum()).cyan().bold()
+        kanri_core::utils::format_size(items.iter().map(|i| i.size).sum())
+            .cyan()
+            .bold()
     );
 
     // リスト表示
@@ -1404,18 +1432,26 @@ fn archive_large_files(
     );
 
     if dry_run {
-        println!("\n{}", "ℹ Dry-run モード: 実際のアップロードは行いません".yellow());
+        println!(
+            "\n{}",
+            "ℹ Dry-run モード: 実際のアップロードは行いません".yellow()
+        );
         println!("\n{}", "アップロード予定:".cyan().bold());
         for item in &items {
             let relative_path = item.path.strip_prefix(&path).unwrap_or(item.path.as_path());
             let remote_path = PathBuf::from(&versioned_path).join(relative_path);
-            println!("  {} -> {}", item.path.display(), remote_path.display().to_string().green());
+            println!(
+                "  {} -> {}",
+                item.path.display(),
+                remote_path.display().to_string().green()
+            );
         }
         return Ok(());
     }
 
     // アーカイブ作成
-    let mut archive_record = archive::Archive::new("large-files".to_string(), versioned_path.clone());
+    let mut archive_record =
+        archive::Archive::new("large-files".to_string(), versioned_path.clone());
 
     // アップロード
     println!("\n{}", "⬆️ B2 にアップロード中...".cyan().bold());
@@ -1425,7 +1461,11 @@ fn archive_large_files(
         let remote_path = PathBuf::from(&versioned_path).join(relative_path);
         let remote_path_str = remote_path.to_string_lossy();
 
-        println!("  📤 {} -> {}", item.path.display(), remote_path.display().to_string().green());
+        println!(
+            "  📤 {} -> {}",
+            item.path.display(),
+            remote_path.display().to_string().green()
+        );
 
         if item.is_dir {
             let _files = storage_client.upload_directory(&bucket, &item.path, &remote_path_str)?;
@@ -1433,7 +1473,8 @@ fn archive_large_files(
             let _file_id = storage_client.upload_file(&bucket, &item.path, &remote_path_str)?;
         }
 
-        let archive_item = archive::ArchiveItem::from_file(&item.path, remote_path_str.to_string())?;
+        let archive_item =
+            archive::ArchiveItem::from_file(&item.path, remote_path_str.to_string())?;
         archive_record.add_item(archive_item);
 
         println!("    {}", "✅ 完了".green());
@@ -1489,11 +1530,17 @@ fn restore_archive(
     let storage_client = config.create_storage_client()?;
 
     // 認証
-    println!("{}", format!("🔐 {} 認証中...", backend.to_uppercase()).cyan());
+    println!(
+        "{}",
+        format!("🔐 {} 認証中...", backend.to_uppercase()).cyan()
+    );
     storage_client.authorize()?;
 
     // ファイル一覧を取得
-    println!("{}", format!("📋 {} からファイル一覧を取得中...", backend.to_uppercase()).cyan());
+    println!(
+        "{}",
+        format!("📋 {} からファイル一覧を取得中...", backend.to_uppercase()).cyan()
+    );
     let all_files = storage_client.list_files(&bucket, from)?;
 
     if all_files.is_empty() {
@@ -1535,7 +1582,10 @@ fn restore_archive(
                 if let Some(timestamp) = extract_timestamp(file) {
                     // タイムスタンプを除去した正規化パス
                     let normalized = remove_timestamp(file, &timestamp);
-                    file_groups.entry(normalized).or_insert_with(Vec::new).push(file.clone());
+                    file_groups
+                        .entry(normalized)
+                        .or_default()
+                        .push(file.clone());
                 }
             }
 
@@ -1548,7 +1598,10 @@ fn restore_archive(
                     if let Some(timestamp) = extract_timestamp(latest_file) {
                         let restore_path = remove_timestamp(latest_file, &timestamp);
                         // from プレフィックスを除去
-                        let restore_path = restore_path.strip_prefix(from).unwrap_or(&restore_path).trim_start_matches('/');
+                        let restore_path = restore_path
+                            .strip_prefix(from)
+                            .unwrap_or(&restore_path)
+                            .trim_start_matches('/');
                         selected_files.push((latest_file.clone(), restore_path.to_string()));
                     }
                 }
@@ -1558,7 +1611,8 @@ fn restore_archive(
         }
         RestoreMode::Version => {
             // 特定バージョンを指定
-            let version_str = version.ok_or_else(|| anyhow::anyhow!("--version が指定されていません"))?;
+            let version_str =
+                version.ok_or_else(|| anyhow::anyhow!("--version が指定されていません"))?;
 
             all_files
                 .iter()
@@ -1570,7 +1624,10 @@ fn restore_archive(
                     } else {
                         file.to_string()
                     };
-                    let restore_path = restore_path.strip_prefix(from).unwrap_or(&restore_path).trim_start_matches('/');
+                    let restore_path = restore_path
+                        .strip_prefix(from)
+                        .unwrap_or(&restore_path)
+                        .trim_start_matches('/');
                     (file.clone(), restore_path.to_string())
                 })
                 .collect()
@@ -1580,7 +1637,10 @@ fn restore_archive(
             all_files
                 .iter()
                 .map(|file| {
-                    let restore_path = file.strip_prefix(from).unwrap_or(file).trim_start_matches('/');
+                    let restore_path = file
+                        .strip_prefix(from)
+                        .unwrap_or(file)
+                        .trim_start_matches('/');
                     (file.clone(), restore_path.to_string())
                 })
                 .collect()
@@ -1599,15 +1659,26 @@ fn restore_archive(
         RestoreMode::Raw => "タイムスタンプ付きでフル復元".to_string(),
     };
     println!("\n{} {}", "📦 復元モード:".cyan(), mode_str);
-    println!("{} {} 個のファイルを復元", "📥".cyan(), files_to_restore.len());
+    println!(
+        "{} {} 個のファイルを復元",
+        "📥".cyan(),
+        files_to_restore.len()
+    );
 
     // Dry-run モード
     if dry_run {
-        println!("\n{}", "ℹ  Dry-run モード: 実際のダウンロードは行いません".yellow());
+        println!(
+            "\n{}",
+            "ℹ  Dry-run モード: 実際のダウンロードは行いません".yellow()
+        );
         println!("\n{}", "ダウンロード予定:".cyan().bold());
         for (remote_file, local_path) in &files_to_restore {
             let full_local_path = std::path::Path::new(to).join(local_path);
-            println!("  {} -> {}", remote_file, full_local_path.display().to_string().green());
+            println!(
+                "  {} -> {}",
+                remote_file,
+                full_local_path.display().to_string().green()
+            );
         }
         return Ok(());
     }
@@ -1697,14 +1768,14 @@ fn show_config() -> Result<()> {
         );
     } else {
         println!("{}", "B2 が設定されていません".yellow());
-        println!("設定するには: {}", "kanri config init-b2 --bucket <bucket-name>".cyan());
+        println!(
+            "設定するには: {}",
+            "kanri config init-b2 --bucket <bucket-name>".cyan()
+        );
     }
 
     println!();
-    println!(
-        "設定ファイル: {}",
-        config::Config::config_path()?.display()
-    );
+    println!("設定ファイル: {}", config::Config::config_path()?.display());
 
     Ok(())
 }
@@ -1722,13 +1793,13 @@ fn init_b2_config(bucket: String, key_id: Option<String>, key: Option<String>) -
 
     config.save_with_template()?;
 
-    println!(
-        "{}",
-        "✅ B2 設定を保存しました".green().bold()
-    );
+    println!("{}", "✅ B2 設定を保存しました".green().bold());
     println!("  Bucket: {}", bucket.cyan());
     println!();
-    println!("{}", "💡 認証情報は環境変数で設定することを推奨します:".yellow());
+    println!(
+        "{}",
+        "💡 認証情報は環境変数で設定することを推奨します:".yellow()
+    );
     println!("  export B2_APPLICATION_KEY_ID=<your-key-id>");
     println!("  export B2_APPLICATION_KEY=<your-key>");
 
@@ -2028,9 +2099,7 @@ fn run_diagnostics(path: &PathBuf, json: bool, threshold: Option<f64>) -> Result
     // 大きなファイル (2GB以上)
     let min_size = 2 * 1024 * 1024 * 1024; // 2GB
     if let Ok(large_items) = kanri_core::large_files::find_large_items(
-        path,
-        min_size,
-        None, // extensions
+        path, min_size, None, // extensions
         true, // include_dirs
         true, // include_files
     ) {
@@ -2073,7 +2142,10 @@ fn run_diagnostics(path: &PathBuf, json: bool, threshold: Option<f64>) -> Result
 
 fn print_diagnostic_report(report: &DiagnosticReport) {
     if report.categories.is_empty() {
-        println!("{}", "✨ クリーンアップ可能な項目が見つかりませんでした".green());
+        println!(
+            "{}",
+            "✨ クリーンアップ可能な項目が見つかりませんでした".green()
+        );
         return;
     }
 
@@ -2127,8 +2199,5 @@ fn print_diagnostic_report(report: &DiagnosticReport) {
     }
 
     println!();
-    println!(
-        "{}",
-        format!("診断実行日時: {}", report.timestamp).dimmed()
-    );
+    println!("{}", format!("診断実行日時: {}", report.timestamp).dimmed());
 }

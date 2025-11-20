@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 /// クリーンアップ可能な項目のメタデータ
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct CleanableMetadata {
     /// 安全性フラグ（キャッシュクリーナーなどで使用）
     pub is_safe: Option<bool>,
@@ -10,14 +11,6 @@ pub struct CleanableMetadata {
     pub safety_label: Option<String>,
 }
 
-impl Default for CleanableMetadata {
-    fn default() -> Self {
-        Self {
-            is_safe: None,
-            safety_label: None,
-        }
-    }
-}
 
 /// クリーンアップ可能な項目を表すtrait
 pub trait Cleanable: Sized {
@@ -106,11 +99,7 @@ mod tests {
 
     #[test]
     fn test_cleanable_item_new() {
-        let item = CleanableItem::new(
-            "test".to_string(),
-            PathBuf::from("/tmp/test"),
-            1024,
-        );
+        let item = CleanableItem::new("test".to_string(), PathBuf::from("/tmp/test"), 1024);
 
         assert_eq!(item.name, "test");
         assert_eq!(item.size, 1024);

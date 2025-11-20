@@ -41,10 +41,7 @@ pub fn get_system_info() -> Result<DockerInfo> {
         ));
     }
 
-    let output = Command::new("docker")
-        .arg("system")
-        .arg("df")
-        .output()?;
+    let output = Command::new("docker").arg("system").arg("df").output()?;
 
     if !output.status.success() {
         return Err(Error::InvalidPath(

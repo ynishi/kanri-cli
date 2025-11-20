@@ -1,0 +1,36 @@
+[package]
+name = "kanri-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "kanri-agent"
+path = "src/main.rs"
+
+[dependencies]
+kanri-agent-core = { path = "../kanri-agent-core" }
+
+# CLI
+clap.workspace = true
+clap_complete.workspace = true
+
+# Error handling
+anyhow.workspace = true
+
+# Display
+colored.workspace = true
+indicatif.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+schemars = "0.8"
+
+# Date/Time
+chrono.workspace = true
+
+# Terminal detection
+atty = "0.2"

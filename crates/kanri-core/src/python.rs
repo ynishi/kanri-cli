@@ -86,13 +86,7 @@ impl Cleanable for PythonCleaner {
 
         Ok(venvs
             .into_iter()
-            .map(|v| {
-                CleanableItem::new(
-                    v.root.display().to_string(),
-                    v.venv_dir,
-                    v.size,
-                )
-            })
+            .map(|v| CleanableItem::new(v.root.display().to_string(), v.venv_dir, v.size))
             .collect())
     }
 

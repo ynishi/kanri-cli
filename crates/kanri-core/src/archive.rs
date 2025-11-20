@@ -65,13 +65,11 @@ impl ArchiveIndex {
             });
         }
 
-        let content = fs::read_to_string(&path).map_err(|e| {
-            crate::Error::Config(format!("Failed to read archive index: {}", e))
-        })?;
+        let content = fs::read_to_string(&path)
+            .map_err(|e| crate::Error::Config(format!("Failed to read archive index: {}", e)))?;
 
-        let index: ArchiveIndex = serde_json::from_str(&content).map_err(|e| {
-            crate::Error::Config(format!("Failed to parse archive index: {}", e))
-        })?;
+        let index: ArchiveIndex = serde_json::from_str(&content)
+            .map_err(|e| crate::Error::Config(format!("Failed to parse archive index: {}", e)))?;
 
         Ok(index)
     }
@@ -91,9 +89,8 @@ impl ArchiveIndex {
             crate::Error::Config(format!("Failed to serialize archive index: {}", e))
         })?;
 
-        fs::write(&path, content).map_err(|e| {
-            crate::Error::Config(format!("Failed to write archive index: {}", e))
-        })?;
+        fs::write(&path, content)
+            .map_err(|e| crate::Error::Config(format!("Failed to write archive index: {}", e)))?;
 
         Ok(())
     }
@@ -159,9 +156,8 @@ impl ArchiveItem {
 
     /// ファイルから ArchiveItem を作成
     pub fn from_file(local_path: &Path, b2_path: String) -> Result<Self> {
-        let metadata = fs::metadata(local_path).map_err(|e| {
-            crate::Error::Archive(format!("Failed to get file metadata: {}", e))
-        })?;
+        let metadata = fs::metadata(local_path)
+            .map_err(|e| crate::Error::Archive(format!("Failed to get file metadata: {}", e)))?;
 
         let size = metadata.len();
         let is_dir = metadata.is_dir();
